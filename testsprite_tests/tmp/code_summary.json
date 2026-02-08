@@ -1,0 +1,86 @@
+{
+  "tech_stack": [
+    "TypeScript",
+    "Next.js 16 (App Router)",
+    "Supabase (PostgreSQL, Auth, SSR)",
+    "Tailwind CSS v4",
+    "Shadcn UI",
+    "Recharts",
+    "Lucide React",
+    "XLSX",
+    "ExcelJS",
+    "Zod",
+    "React Hook Form"
+  ],
+  "features": [
+    {
+      "name": "Autenticação e Controle de Acesso",
+      "description": "Sistema de login, cadastro e proteção de rotas via middleware com suporte a múltiplos níveis de acesso (novo, colaborador, admin).",
+      "files": [
+        "src/app/login/page.tsx",
+        "src/app/cadastro/page.tsx",
+        "src/middleware.ts",
+        "src/lib/supabase/middleware.ts"
+      ]
+    },
+    {
+      "name": "Dashboard Analítico",
+      "description": "Visualização de KPIs principais, gráficos de performance e evolução temporal com filtros dinâmicos.",
+      "files": [
+        "src/app/(dashboard)/dashboard/page.tsx",
+        "src/lib/dashboard-filters.ts"
+      ]
+    },
+    {
+      "name": "Upload e Processamento de Dados",
+      "description": "Importação de arquivos Excel (.xlsx) com pré-visualização e validação antes da persistência no banco.",
+      "files": [
+        "src/app/(dashboard)/upload/page.tsx"
+      ]
+    },
+    {
+      "name": "Gestão de Produtividade",
+      "description": "Controle de cargas, edição inline de dados operacionais e cálculos automáticos de produtividade.",
+      "files": [
+        "src/app/(dashboard)/produtividade/page.tsx",
+        "src/lib/calculos.ts"
+      ]
+    },
+    {
+      "name": "Gestão de Descontos",
+      "description": "Cadastro e aplicação de descontos por colaborador baseados em faltas, advertências e atestados.",
+      "files": [
+        "src/app/(dashboard)/descontos/page.tsx"
+      ]
+    },
+    {
+      "name": "Fechamento e Resultados",
+      "description": "Cálculo de bônus mensal e atingimento de metas com base nas métricas de produtividade e descontos.",
+      "files": [
+        "src/app/(dashboard)/resultado/page.tsx"
+      ]
+    },
+    {
+      "name": "Gestão de Cadastros",
+      "description": "Administração de colaboradores, filiais e funções.",
+      "files": [
+        "src/app/(dashboard)/cadastros/page.tsx"
+      ]
+    },
+    {
+      "name": "Relatórios",
+      "description": "Geração de relatórios operacionais em diversos formatos.",
+      "files": [
+        "src/app/(dashboard)/relatorios/page.tsx",
+        "src/lib/relatorios.ts"
+      ]
+    },
+    {
+      "name": "Configurações do Sistema",
+      "description": "Painel administrativo para gestão de usuários e regras de negócio.",
+      "files": [
+        "src/app/(dashboard)/configuracoes/page.tsx"
+      ]
+    }
+  ]
+}

@@ -105,17 +105,33 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-green-100 p-4">
-      <Card className="w-full max-w-md">
+    <div className="relative min-h-screen flex items-center justify-center overflow-hidden p-4">
+      {/* Background Image */}
+      <div className="absolute inset-0 z-0">
+        <Image
+          src="/backgroundpickprod2.png"
+          alt="Background"
+          fill
+          className="object-cover"
+          priority
+          quality={100}
+          sizes="100vw"
+        />
+        <div className="absolute inset-0 bg-black/40" />
+      </div>
+
+      <Card className="relative z-10 w-full max-w-md bg-white/35 backdrop-blur-md border-white/30 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-600">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <Image
               src="/pickprodlogo.png"
               alt="PickProd Logo"
-              width={140}
-              height={140}
-              className="object-contain rounded-full"
+              width={280}
+              height={280}
+              className="object-contain rounded-full w-[140px] h-[140px]"
               priority
+              quality={100}
+              style={{ imageRendering: 'auto' }}
             />
           </div>
           <CardTitle className="text-2xl font-bold">PickProd</CardTitle>

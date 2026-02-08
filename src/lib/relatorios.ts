@@ -49,9 +49,64 @@ export interface FechamentoLinha {
   percentual_atingimento: number
 }
 
-export async function fetchReportData(mesNum: string, ano: number) {
+export interface EvolucaoTemporalRow {
+  data_carga: string
+  total_kg: number
+  total_volume: number
+  total_paletes: number
+}
+
+function toISODate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+/** Busca dados de evolução temporal por data_carga para o relatório HTML (mesmo RPC do dashboard). */
+export async function fetchEvolucaoTemporal(
+  mesNome: string,
+  ano: number,
+  idFilial: string | null
+): Promise<EvolucaoTemporalRow[]> {
   const supabase = createClient()
-  const { data, error } = await supabase
+  let dataInicio: Date
+  let dataFim: Date
+  if (!mesNome || mesNome === 'todos') {
+    dataInicio = new Date(ano, 0, 1)
+    dataFim = new Date(ano, 11, 31)
+  } else {
+    const numStr = MES_NOME_TO_NUM[mesNome.toLowerCase()]
+    const month = numStr ? parseInt(numStr, 10) - 1 : 0
+    dataInicio = new Date(ano, month, 1)
+    dataFim = new Date(ano, month + 1, 0)
+  }
+  const { data, error } = await supabase.rpc('get_dashboard_evolucao', {
+    p_data_inicio: toISODate(dataInicio),
+    p_data_fim: toISODate(dataFim),
+    p_id_filial: idFilial,
+    p_busca: null,
+    p_id_colaborador: null,
+    p_carga: null,
+    p_nota_fiscal: null,
+    p_cliente: null,
+    p_rede: null,
+    p_cidade_cliente: null,
+    p_uf: null,
+    p_produto: null,
+    p_familia: null,
+    p_tempo_min: null,
+    p_tempo_max: null,
+  })
+  if (error) return []
+  return (data ?? []).map((r: { data_carga: string; total_kg: number; total_volume: number; total_paletes: number }) => ({
+    data_carga: r.data_carga,
+    total_kg: Number(r.total_kg ?? 0),
+    total_volume: Number(r.total_volume ?? 0),
+    total_paletes: Number(r.total_paletes ?? 0),
+  }))
+}
+
+export async function fetchReportData(mesNome: string, ano: number) {
+  const supabase = createClient()
+  let query = supabase
     .from('fechamento')
     .select(`
       id,
@@ -81,7 +136,11 @@ export async function fetchReportData(mesNum: string, ano: number) {
       colaboradores (nome),
       filiais (nome)
     `)
-    .eq('mes', mesNum)
+  // Se mesNome não for "todos", filtrar por mês específico
+  if (mesNome && mesNome !== 'todos') {
+    query = query.eq('mes', mesNome)
+  }
+  const { data, error } = await query
     .eq('ano', ano)
     .order('id_filial')
     .order('id_colaborador')

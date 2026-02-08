@@ -16,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
@@ -24,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Edit, Trash2, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FilterToggle } from '@/components/FilterToggle'
 
 interface DadoCarga {
   id_carga_cliente: string
@@ -56,11 +58,33 @@ export default function ProdutividadePage() {
   
   const [colaboradores, setColaboradores] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
+  const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
   
   // Filtros
   const [filtroFilial, setFiltroFilial] = useState('todas')
   const [filtroColaborador, setFiltroColaborador] = useState('todos')
   const [filtroBusca, setFiltroBusca] = useState('')
+  const [filtroDataInicio, setFiltroDataInicio] = useState('')
+  const [filtroDataFim, setFiltroDataFim] = useState('')
+  const [filtroCliente, setFiltroCliente] = useState('')
+  const [filtroTempoMin, setFiltroTempoMin] = useState('')
+  const [filtroTempoMax, setFiltroTempoMax] = useState('')
+  const [filtroErrosSepMin, setFiltroErrosSepMin] = useState('')
+  const [filtroErrosSepMax, setFiltroErrosSepMax] = useState('')
+  const [filtroErrosEntMin, setFiltroErrosEntMin] = useState('')
+  const [filtroErrosEntMax, setFiltroErrosEntMax] = useState('')
+  const [filtroKgHsMin, setFiltroKgHsMin] = useState('')
+  const [filtroKgHsMax, setFiltroKgHsMax] = useState('')
+  const [filtroVolHsMin, setFiltroVolHsMin] = useState('')
+  const [filtroVolHsMax, setFiltroVolHsMax] = useState('')
+  const [filtroPltHsMin, setFiltroPltHsMin] = useState('')
+  const [filtroPltHsMax, setFiltroPltHsMax] = useState('')
+  const [filtroIdCarga, setFiltroIdCarga] = useState('')
+  const [filtroMatricula, setFiltroMatricula] = useState('')
+  const [buscaDebounced, setBuscaDebounced] = useState('')
+  const [clienteDebounced, setClienteDebounced] = useState('')
+  const [idCargaDebounced, setIdCargaDebounced] = useState('')
+  const [matriculaDebounced, setMatriculaDebounced] = useState('')
 
   // Dialog de edição
   const [dialogAberto, setDialogAberto] = useState(false)
@@ -71,6 +95,9 @@ export default function ProdutividadePage() {
   const [erroSeparacao, setErroSeparacao] = useState(0)
   const [erroEntregas, setErroEntregas] = useState(0)
   const [observacao, setObservacao] = useState('')
+  const [confirmSalvarOpen, setConfirmSalvarOpen] = useState(false)
+  const [confirmExcluirOpen, setConfirmExcluirOpen] = useState(false)
+  const [idExcluir, setIdExcluir] = useState<string | null>(null)
   const dadosRef = useRef<DadoCarga[]>([])
   dadosRef.current = dados
 
@@ -80,8 +107,19 @@ export default function ProdutividadePage() {
     if (!hi || !hf) return null
     const [h1, m1] = hi.split(':').map(Number)
     const [h2, m2] = hf.split(':').map(Number)
-    const diff = (h2 * 60 + m2) - (h1 * 60 + m1)
-    return diff > 0 ? diff / 60 : null
+    
+    let minutosIniciais = h1 * 60 + m1
+    let minutosFinais = h2 * 60 + m2
+    
+    // Se hora final é menor que inicial, houve virada de dia
+    if (minutosFinais < minutosIniciais) {
+      minutosFinais += 24 * 60 // Adiciona 24 horas em minutos
+    }
+    
+    const diferencaMinutos = minutosFinais - minutosIniciais
+    const horasDecimais = diferencaMinutos / 60
+    
+    return Math.round(horasDecimais * 100) / 100 // Arredonda para 2 casas decimais
   }
 
   function atualizarLinhaLocal(idCargaCliente: string, updates: Partial<DadoCarga>) {
@@ -125,14 +163,62 @@ export default function ProdutividadePage() {
   }
 
   useEffect(() => {
+    carregarUsuarioLogado()
     carregarDados()
     carregarColaboradores()
     carregarFiliais()
   }, [])
 
+  // Quando o usuário logado E as filiais estiverem carregados, fixar o filtro
+  useEffect(() => {
+    if (usuarioLogado?.tipo === 'colaborador' && usuarioLogado.id_filial && filiais.length > 0) {
+      const filialObj = filiais.find((f: any) => f.id === usuarioLogado.id_filial)
+      if (filialObj) {
+        setFiltroFilial(filialObj.nome)
+      }
+    }
+  }, [usuarioLogado, filiais])
+
+  const carregarUsuarioLogado = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (user) {
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('tipo, id_filial')
+        .eq('id', user.id)
+        .single()
+      
+      if (usuario) {
+        setUsuarioLogado(usuario)
+      }
+    }
+  }
+
+  // Debounce para inputs de texto
+  useEffect(() => {
+    const timer = setTimeout(() => setBuscaDebounced(filtroBusca), 300)
+    return () => clearTimeout(timer)
+  }, [filtroBusca])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setClienteDebounced(filtroCliente), 300)
+    return () => clearTimeout(timer)
+  }, [filtroCliente])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIdCargaDebounced(filtroIdCarga), 300)
+    return () => clearTimeout(timer)
+  }, [filtroIdCarga])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMatriculaDebounced(filtroMatricula), 300)
+    return () => clearTimeout(timer)
+  }, [filtroMatricula])
+
   useEffect(() => {
     aplicarFiltros()
-  }, [dados, filtroFilial, filtroColaborador, filtroBusca])
+  }, [dados, filtroFilial, filtroColaborador, buscaDebounced, filtroDataInicio, filtroDataFim, clienteDebounced, filtroTempoMin, filtroTempoMax, filtroErrosSepMin, filtroErrosSepMax, filtroErrosEntMin, filtroErrosEntMax, filtroKgHsMin, filtroKgHsMax, filtroVolHsMin, filtroVolHsMax, filtroPltHsMin, filtroPltHsMax, idCargaDebounced, matriculaDebounced])
 
   const carregarDados = async () => {
     setLoading(true)
@@ -211,8 +297,8 @@ export default function ProdutividadePage() {
       filtrados = filtrados.filter(d => d.colaborador === filtroColaborador)
     }
 
-    if (filtroBusca) {
-      const busca = filtroBusca.toLowerCase()
+    if (buscaDebounced) {
+      const busca = buscaDebounced.toLowerCase()
       filtrados = filtrados.filter(d =>
         d.carga.toLowerCase().includes(busca) ||
         d.cliente.toLowerCase().includes(busca) ||
@@ -220,9 +306,143 @@ export default function ProdutividadePage() {
       )
     }
 
+    if (filtroDataInicio) {
+      filtrados = filtrados.filter(d => d.data_carga >= filtroDataInicio)
+    }
+
+    if (filtroDataFim) {
+      filtrados = filtrados.filter(d => d.data_carga <= filtroDataFim)
+    }
+
+    if (clienteDebounced) {
+      const cliente = clienteDebounced.toLowerCase()
+      filtrados = filtrados.filter(d => d.cliente.toLowerCase().includes(cliente))
+    }
+
+    if (filtroTempoMin !== '') {
+      const min = Number(filtroTempoMin)
+      filtrados = filtrados.filter(d => d.tempo !== null && d.tempo >= min)
+    }
+
+    if (filtroTempoMax !== '') {
+      const max = Number(filtroTempoMax)
+      filtrados = filtrados.filter(d => d.tempo !== null && d.tempo <= max)
+    }
+
+    if (filtroErrosSepMin !== '') {
+      const min = Number(filtroErrosSepMin)
+      filtrados = filtrados.filter(d => d.erro_separacao >= min)
+    }
+
+    if (filtroErrosSepMax !== '') {
+      const max = Number(filtroErrosSepMax)
+      filtrados = filtrados.filter(d => d.erro_separacao <= max)
+    }
+
+    if (filtroErrosEntMin !== '') {
+      const min = Number(filtroErrosEntMin)
+      filtrados = filtrados.filter(d => d.erro_entregas >= min)
+    }
+
+    if (filtroErrosEntMax !== '') {
+      const max = Number(filtroErrosEntMax)
+      filtrados = filtrados.filter(d => d.erro_entregas <= max)
+    }
+
+    if (filtroKgHsMin !== '') {
+      const min = Number(filtroKgHsMin)
+      filtrados = filtrados.filter(d => d.kg_hs !== null && d.kg_hs >= min)
+    }
+
+    if (filtroKgHsMax !== '') {
+      const max = Number(filtroKgHsMax)
+      filtrados = filtrados.filter(d => d.kg_hs !== null && d.kg_hs <= max)
+    }
+
+    if (filtroVolHsMin !== '') {
+      const min = Number(filtroVolHsMin)
+      filtrados = filtrados.filter(d => d.vol_hs !== null && d.vol_hs >= min)
+    }
+
+    if (filtroVolHsMax !== '') {
+      const max = Number(filtroVolHsMax)
+      filtrados = filtrados.filter(d => d.vol_hs !== null && d.vol_hs <= max)
+    }
+
+    if (filtroPltHsMin !== '') {
+      const min = Number(filtroPltHsMin)
+      filtrados = filtrados.filter(d => d.plt_hs !== null && d.plt_hs >= min)
+    }
+
+    if (filtroPltHsMax !== '') {
+      const max = Number(filtroPltHsMax)
+      filtrados = filtrados.filter(d => d.plt_hs !== null && d.plt_hs <= max)
+    }
+
+    if (idCargaDebounced) {
+      const idCarga = idCargaDebounced.toLowerCase()
+      filtrados = filtrados.filter(d => d.id_carga_cliente.toLowerCase().includes(idCarga))
+    }
+
+    if (matriculaDebounced) {
+      const matricula = matriculaDebounced.toLowerCase()
+      filtrados = filtrados.filter(d => {
+        const colaboradorObj = colaboradores.find(c => c.nome === d.colaborador)
+        return colaboradorObj?.matricula?.toLowerCase().includes(matricula)
+      })
+    }
+
     setDadosFiltrados(filtrados)
     setTotalPaginas(Math.ceil(filtrados.length / registrosPorPagina))
     setPaginaAtual(1)
+  }
+
+  const limparFiltros = () => {
+    setFiltroFilial('todas')
+    setFiltroColaborador('todos')
+    setFiltroBusca('')
+    setFiltroDataInicio('')
+    setFiltroDataFim('')
+    setFiltroCliente('')
+    setFiltroTempoMin('')
+    setFiltroTempoMax('')
+    setFiltroErrosSepMin('')
+    setFiltroErrosSepMax('')
+    setFiltroErrosEntMin('')
+    setFiltroErrosEntMax('')
+    setFiltroKgHsMin('')
+    setFiltroKgHsMax('')
+    setFiltroVolHsMin('')
+    setFiltroVolHsMax('')
+    setFiltroPltHsMin('')
+    setFiltroPltHsMax('')
+    setFiltroIdCarga('')
+    setFiltroMatricula('')
+  }
+
+  const contarFiltrosAtivos = () => {
+    let count = 0
+    if (filtroFilial !== 'todas') count++
+    if (filtroColaborador !== 'todos') count++
+    if (filtroBusca) count++
+    if (filtroDataInicio) count++
+    if (filtroDataFim) count++
+    if (filtroCliente) count++
+    if (filtroTempoMin) count++
+    if (filtroTempoMax) count++
+    if (filtroErrosSepMin) count++
+    if (filtroErrosSepMax) count++
+    if (filtroErrosEntMin) count++
+    if (filtroErrosEntMax) count++
+    if (filtroKgHsMin) count++
+    if (filtroKgHsMax) count++
+    if (filtroVolHsMin) count++
+    if (filtroVolHsMax) count++
+    if (filtroPltHsMin) count++
+    if (filtroPltHsMax) count++
+    if (filtroIdCarga) count++
+    if (filtroMatricula) count++
+    return count
   }
 
   const abrirEdicao = (dado: DadoCarga) => {
@@ -241,8 +461,19 @@ export default function ProdutividadePage() {
       ? (() => {
           const [h1, m1] = horaInicial.split(':').map(Number)
           const [h2, m2] = horaFinal.split(':').map(Number)
-          const diff = (h2 * 60 + m2) - (h1 * 60 + m1)
-          return diff > 0 ? (diff / 60).toFixed(1) : '-'
+          
+          let minutosIniciais = h1 * 60 + m1
+          let minutosFinais = h2 * 60 + m2
+          
+          // Se hora final é menor que inicial, houve virada de dia
+          if (minutosFinais < minutosIniciais) {
+            minutosFinais += 24 * 60 // Adiciona 24 horas em minutos
+          }
+          
+          const diferencaMinutos = minutosFinais - minutosIniciais
+          const horasDecimais = diferencaMinutos / 60
+          
+          return horasDecimais > 0 ? horasDecimais.toFixed(1) : '-'
         })()
       : '-'
 
@@ -281,7 +512,17 @@ export default function ProdutividadePage() {
       if (horaInicial && horaFinal) {
         const [h1, m1] = horaInicial.split(':').map(Number)
         const [h2, m2] = horaFinal.split(':').map(Number)
-        tempo = ((h2 * 60 + m2) - (h1 * 60 + m1)) / 60
+        
+        let minutosIniciais = h1 * 60 + m1
+        let minutosFinais = h2 * 60 + m2
+        
+        // Se hora final é menor que inicial, houve virada de dia
+        if (minutosFinais < minutosIniciais) {
+          minutosFinais += 24 * 60 // Adiciona 24 horas em minutos
+        }
+        
+        tempo = (minutosFinais - minutosIniciais) / 60
+        tempo = Math.round(tempo * 100) / 100 // Arredonda para 2 casas decimais
         
         if (tempo > 0) {
           kgHs = dadoEditando.peso_liquido_total / tempo
@@ -324,17 +565,22 @@ export default function ProdutividadePage() {
     }
   }
 
-  const deletarDado = async (idCargaCliente: string) => {
-    if (!confirm('Tem certeza que deseja excluir esta carga?')) return
+  const abrirConfirmExcluir = (idCargaCliente: string) => {
+    setIdExcluir(idCargaCliente)
+    setConfirmExcluirOpen(true)
+  }
 
+  const executarExcluir = async () => {
+    if (!idExcluir) return
     try {
       const { error } = await supabase
         .from('dados_produtividade')
         .delete()
-        .eq('id_carga_cliente', idCargaCliente)
+        .eq('id_carga_cliente', idExcluir)
 
       if (error) throw error
       carregarDados()
+      setIdExcluir(null)
     } catch (error) {
       console.error('Erro ao deletar:', error)
       alert('Erro ao excluir dados')
@@ -356,51 +602,225 @@ export default function ProdutividadePage() {
       </div>
 
       {/* Filtros */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label>Filial</Label>
-              <Select value={filtroFilial} onValueChange={setFiltroFilial}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas</SelectItem>
-                  {filiais.map(f => (
-                    <SelectItem key={f.id} value={f.nome}>{f.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      <FilterToggle
+        filtrosAtivos={contarFiltrosAtivos()}
+        onLimparFiltros={limparFiltros}
+      >
+          <div className="space-y-4">
+            {/* Linha 1 */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label>Filial</Label>
+                <Select 
+                  value={filtroFilial} 
+                  onValueChange={setFiltroFilial}
+                  disabled={usuarioLogado?.tipo === 'colaborador'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {usuarioLogado?.tipo === 'admin' && (
+                      <SelectItem value="todas">Todas</SelectItem>
+                    )}
+                    {filiais.map(f => (
+                      <SelectItem key={f.id} value={f.nome}>{f.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {usuarioLogado?.tipo === 'colaborador' && (
+                  <p className="text-xs text-muted-foreground">
+                    Fixado para sua filial
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Colaborador</Label>
+                <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    {colaboradores.map(c => (
+                      <SelectItem key={c.id} value={c.nome}>{c.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Data Início</Label>
+                <Input
+                  type="date"
+                  value={filtroDataInicio}
+                  onChange={(e) => setFiltroDataInicio(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Data Fim</Label>
+                <Input
+                  type="date"
+                  value={filtroDataFim}
+                  onChange={(e) => setFiltroDataFim(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Colaborador</Label>
-              <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {colaboradores.map(c => (
-                    <SelectItem key={c.id} value={c.nome}>{c.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+            {/* Linha 2 */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Busca Geral</Label>
+                <Input
+                  placeholder="Buscar por carga, cliente..."
+                  value={filtroBusca}
+                  onChange={(e) => setFiltroBusca(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Cliente</Label>
+                <Input
+                  placeholder="Filtrar por cliente..."
+                  value={filtroCliente}
+                  onChange={(e) => setFiltroCliente(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>ID Carga</Label>
+                <Input
+                  placeholder="Filtrar por ID..."
+                  value={filtroIdCarga}
+                  onChange={(e) => setFiltroIdCarga(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Busca</Label>
-              <Input
-                placeholder="Buscar por carga, cliente..."
-                value={filtroBusca}
-                onChange={(e) => setFiltroBusca(e.target.value)}
-              />
+
+            {/* Linha 3 - Ranges */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label>Tempo (h)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroTempoMin}
+                    onChange={(e) => setFiltroTempoMin(e.target.value)}
+                    step="0.1"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroTempoMax}
+                    onChange={(e) => setFiltroTempoMax(e.target.value)}
+                    step="0.1"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Erros Sep.</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroErrosSepMin}
+                    onChange={(e) => setFiltroErrosSepMin(e.target.value)}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroErrosSepMax}
+                    onChange={(e) => setFiltroErrosSepMax(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Erros Ent.</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroErrosEntMin}
+                    onChange={(e) => setFiltroErrosEntMin(e.target.value)}
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroErrosEntMax}
+                    onChange={(e) => setFiltroErrosEntMax(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Matrícula</Label>
+                <Input
+                  placeholder="Filtrar por matrícula..."
+                  value={filtroMatricula}
+                  onChange={(e) => setFiltroMatricula(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Linha 4 - Métricas */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Kg/Hs</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroKgHsMin}
+                    onChange={(e) => setFiltroKgHsMin(e.target.value)}
+                    step="0.1"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroKgHsMax}
+                    onChange={(e) => setFiltroKgHsMax(e.target.value)}
+                    step="0.1"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Vol/Hs</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroVolHsMin}
+                    onChange={(e) => setFiltroVolHsMin(e.target.value)}
+                    step="0.1"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroVolHsMax}
+                    onChange={(e) => setFiltroVolHsMax(e.target.value)}
+                    step="0.1"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Plt/Hs</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroPltHsMin}
+                    onChange={(e) => setFiltroPltHsMin(e.target.value)}
+                    step="0.1"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroPltHsMax}
+                    onChange={(e) => setFiltroPltHsMax(e.target.value)}
+                    step="0.1"
+                  />
+                </div>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </FilterToggle>
 
       {/* Tabela */}
       <Card>
@@ -576,7 +996,7 @@ export default function ProdutividadePage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => deletarDado(dado.id_carga_cliente)}
+                            onClick={() => abrirConfirmExcluir(dado.id_carga_cliente)}
                           >
                             <Trash2 className="w-4 h-4 text-red-600" />
                           </Button>
@@ -622,6 +1042,7 @@ export default function ProdutividadePage() {
 
       {/* Dialog de Edição */}
       <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
+        {dialogAberto && (
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Editar Dados da Carga</DialogTitle>
@@ -701,12 +1122,32 @@ export default function ProdutividadePage() {
             <Button variant="outline" onClick={() => setDialogAberto(false)}>
               Cancelar
             </Button>
-            <Button onClick={salvarEdicao} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={() => setConfirmSalvarOpen(true)} className="bg-green-600 hover:bg-green-700">
               Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
+        )}
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmSalvarOpen}
+        onOpenChange={setConfirmSalvarOpen}
+        title="Deseja realmente alterar?"
+        message="As alterações serão aplicadas a este registro."
+        onConfirm={salvarEdicao}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
+      <ConfirmDialog
+        open={confirmExcluirOpen}
+        onOpenChange={(open) => { setConfirmExcluirOpen(open); if (!open) setIdExcluir(null) }}
+        title="Deseja realmente excluir?"
+        message="Esta carga será removida."
+        onConfirm={executarExcluir}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
     </div>
   )
 }

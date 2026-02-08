@@ -1,0 +1,17 @@
+{
+  "status": "init",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:3000/",
+  "executionArgs": {
+    "projectName": "produtividade",
+    "projectPath": "c:\\Users\\PC\\Desktop\\produtividade",
+    "testIds": [],
+    "additionalInstruction": "Use credentials admin@pickprod.com / admin123 for login. Test the dashboard filters and KPI cards specifically.",
+    "envs": {
+      "API_KEY": "sk-user-zjKjm9MHZid3ALxCEhO4eVCx-TO2-uOG54EFcrLKu42TGcmaFSg0msv25EoPN_MbdIrKqHkmKi0PsXXR59tqY1JHGbRWOeMW3RXUKG40bk_7MERv5vcb0IyCRYTwVidTPro"
+    }
+  },
+  "serverPort": 55714,
+  "proxy": "http://c960d0c0-b8c7-4521-9e13-9510d2feff2b:GvAPNqQEEoGZcDNtadLk29Ft0U3xif77@tun.testsprite.com:8080"
+}

@@ -9,9 +9,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Edit, Trash2, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FilterToggle } from '@/components/FilterToggle'
 import type { Desconto } from '@/types/database'
 
 interface DescontoExtendido extends Desconto {
@@ -25,6 +27,7 @@ export default function DescontosPage() {
   const [colaboradores, setColaboradores] = useState<any[]>([])
   const [filiais, setFiliais] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
   
   // Paginação
   const [paginaAtual, setPaginaAtual] = useState(1)
@@ -36,6 +39,19 @@ export default function DescontosPage() {
   const [filtroFilial, setFiltroFilial] = useState('todas')
   const [filtroMes, setFiltroMes] = useState('todos')
   const [filtroBusca, setFiltroBusca] = useState('')
+  const [filtroFaltasMin, setFiltroFaltasMin] = useState('')
+  const [filtroFaltasMax, setFiltroFaltasMax] = useState('')
+  const [filtroFeriasMin, setFiltroFeriasMin] = useState('')
+  const [filtroFeriasMax, setFiltroFeriasMax] = useState('')
+  const [filtroAdvertenciasMin, setFiltroAdvertenciasMin] = useState('')
+  const [filtroAdvertenciasMax, setFiltroAdvertenciasMax] = useState('')
+  const [filtroSuspensoesMin, setFiltroSuspensoesMin] = useState('')
+  const [filtroSuspensoesMax, setFiltroSuspensoesMax] = useState('')
+  const [filtroAtestadoMin, setFiltroAtestadoMin] = useState('')
+  const [filtroAtestadoMax, setFiltroAtestadoMax] = useState('')
+  const [filtroMatricula, setFiltroMatricula] = useState('')
+  const [buscaDebounced, setBuscaDebounced] = useState('')
+  const [matriculaDebounced, setMatriculaDebounced] = useState('')
   
   // Dialog
   const [dialogAberto, setDialogAberto] = useState(false)
@@ -52,6 +68,9 @@ export default function DescontosPage() {
   const [suspensao, setSuspensao] = useState(0)
   const [atestadoDias, setAtestadoDias] = useState(0)
   const [observacao, setObservacao] = useState('')
+  const [confirmSalvarOpen, setConfirmSalvarOpen] = useState(false)
+  const [confirmExcluirOpen, setConfirmExcluirOpen] = useState(false)
+  const [idExcluir, setIdExcluir] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -61,14 +80,47 @@ export default function DescontosPage() {
   ]
 
   useEffect(() => {
+    carregarUsuarioLogado()
     carregarDados()
     carregarColaboradores()
     carregarFiliais()
   }, [])
 
+  const carregarUsuarioLogado = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (user) {
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('tipo, id_filial')
+        .eq('id', user.id)
+        .single()
+      
+      if (usuario) {
+        setUsuarioLogado(usuario)
+        
+        // Se for colaborador, fixar a filial
+        if (usuario.tipo === 'colaborador' && usuario.id_filial) {
+          setFiltroFilial(usuario.id_filial)
+        }
+      }
+    }
+  }
+
+  // Debounce para inputs de texto
+  useEffect(() => {
+    const timer = setTimeout(() => setBuscaDebounced(filtroBusca), 300)
+    return () => clearTimeout(timer)
+  }, [filtroBusca])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMatriculaDebounced(filtroMatricula), 300)
+    return () => clearTimeout(timer)
+  }, [filtroMatricula])
+
   useEffect(() => {
     aplicarFiltros()
-  }, [descontos, filtroColaborador, filtroFilial, filtroMes, filtroBusca])
+  }, [descontos, filtroColaborador, filtroFilial, filtroMes, buscaDebounced, filtroFaltasMin, filtroFaltasMax, filtroFeriasMin, filtroFeriasMax, filtroAdvertenciasMin, filtroAdvertenciasMax, filtroSuspensoesMin, filtroSuspensoesMax, filtroAtestadoMin, filtroAtestadoMax, matriculaDebounced])
 
   const carregarDados = async () => {
     setLoading(true)
@@ -132,17 +184,113 @@ export default function DescontosPage() {
       filtrados = filtrados.filter(d => d.mes === filtroMes)
     }
 
-    if (filtroBusca) {
-      const busca = filtroBusca.toLowerCase()
+    if (buscaDebounced) {
+      const busca = buscaDebounced.toLowerCase()
       filtrados = filtrados.filter(d =>
         d.colaborador_nome?.toLowerCase().includes(busca) ||
         d.observacao?.toLowerCase().includes(busca)
       )
     }
 
+    if (filtroFaltasMin !== '') {
+      const min = Number(filtroFaltasMin)
+      filtrados = filtrados.filter(d => d.falta_injustificada >= min)
+    }
+
+    if (filtroFaltasMax !== '') {
+      const max = Number(filtroFaltasMax)
+      filtrados = filtrados.filter(d => d.falta_injustificada <= max)
+    }
+
+    if (filtroFeriasMin !== '' || filtroFeriasMax !== '') {
+      // Férias é booleano, mas permitir filtro numérico (0=não, 1=sim)
+      filtrados = filtrados.filter(d => {
+        const valor = d.ferias ? 1 : 0
+        if (filtroFeriasMin !== '' && valor < Number(filtroFeriasMin)) return false
+        if (filtroFeriasMax !== '' && valor > Number(filtroFeriasMax)) return false
+        return true
+      })
+    }
+
+    if (filtroAdvertenciasMin !== '') {
+      const min = Number(filtroAdvertenciasMin)
+      filtrados = filtrados.filter(d => d.advertencia >= min)
+    }
+
+    if (filtroAdvertenciasMax !== '') {
+      const max = Number(filtroAdvertenciasMax)
+      filtrados = filtrados.filter(d => d.advertencia <= max)
+    }
+
+    if (filtroSuspensoesMin !== '') {
+      const min = Number(filtroSuspensoesMin)
+      filtrados = filtrados.filter(d => d.suspensao >= min)
+    }
+
+    if (filtroSuspensoesMax !== '') {
+      const max = Number(filtroSuspensoesMax)
+      filtrados = filtrados.filter(d => d.suspensao <= max)
+    }
+
+    if (filtroAtestadoMin !== '') {
+      const min = Number(filtroAtestadoMin)
+      filtrados = filtrados.filter(d => d.atestado_dias >= min)
+    }
+
+    if (filtroAtestadoMax !== '') {
+      const max = Number(filtroAtestadoMax)
+      filtrados = filtrados.filter(d => d.atestado_dias <= max)
+    }
+
+    if (matriculaDebounced) {
+      const matricula = matriculaDebounced.toLowerCase()
+      filtrados = filtrados.filter(d => {
+        const colaboradorObj = colaboradores.find(c => c.id === d.id_colaborador)
+        return colaboradorObj?.matricula?.toLowerCase().includes(matricula)
+      })
+    }
+
     setDescontosFiltrados(filtrados)
     setTotalPaginas(Math.ceil(filtrados.length / registrosPorPagina))
     setPaginaAtual(1)
+  }
+
+  const limparFiltros = () => {
+    setFiltroColaborador('todos')
+    setFiltroFilial('todas')
+    setFiltroMes('todos')
+    setFiltroBusca('')
+    setFiltroFaltasMin('')
+    setFiltroFaltasMax('')
+    setFiltroFeriasMin('')
+    setFiltroFeriasMax('')
+    setFiltroAdvertenciasMin('')
+    setFiltroAdvertenciasMax('')
+    setFiltroSuspensoesMin('')
+    setFiltroSuspensoesMax('')
+    setFiltroAtestadoMin('')
+    setFiltroAtestadoMax('')
+    setFiltroMatricula('')
+  }
+
+  const contarFiltrosAtivos = () => {
+    let count = 0
+    if (filtroColaborador !== 'todos') count++
+    if (filtroFilial !== 'todas') count++
+    if (filtroMes !== 'todos') count++
+    if (filtroBusca) count++
+    if (filtroFaltasMin) count++
+    if (filtroFaltasMax) count++
+    if (filtroFeriasMin) count++
+    if (filtroFeriasMax) count++
+    if (filtroAdvertenciasMin) count++
+    if (filtroAdvertenciasMax) count++
+    if (filtroSuspensoesMin) count++
+    if (filtroSuspensoesMax) count++
+    if (filtroAtestadoMin) count++
+    if (filtroAtestadoMax) count++
+    if (filtroMatricula) count++
+    return count
   }
 
   const calcularPercentualTotal = () => {
@@ -244,25 +392,32 @@ export default function DescontosPage() {
       carregarDados()
     } catch (error: any) {
       console.error('Erro ao salvar:', error)
-      if (error.code === '23505') {
+      if (error?.code === '23505') {
         alert('Já existe um desconto para este colaborador neste mês/ano')
+      } else if (error?.message) {
+        alert(`Erro ao salvar desconto: ${error.message}`)
       } else {
-        alert('Erro ao salvar desconto')
+        alert('Erro ao salvar desconto. Verifique se você tem permissão para esta filial.')
       }
     }
   }
 
-  const deletar = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir este desconto?')) return
+  const abrirConfirmExcluir = (id: string) => {
+    setIdExcluir(id)
+    setConfirmExcluirOpen(true)
+  }
 
+  const executarExcluir = async () => {
+    if (!idExcluir) return
     try {
       const { error } = await supabase
         .from('descontos')
         .delete()
-        .eq('id', id)
+        .eq('id', idExcluir)
 
       if (error) throw error
       carregarDados()
+      setIdExcluir(null)
     } catch (error) {
       console.error('Erro ao deletar:', error)
       alert('Erro ao excluir desconto')
@@ -290,65 +445,194 @@ export default function DescontosPage() {
       </div>
 
       {/* Filtros */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <div className="space-y-2">
-              <Label>Colaborador</Label>
-              <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {colaboradores.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      <FilterToggle
+        filtrosAtivos={contarFiltrosAtivos()}
+        onLimparFiltros={limparFiltros}
+      >
+          <div className="space-y-4">
+            {/* Linha 1 */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label>Colaborador</Label>
+                <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    {colaboradores.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Filial</Label>
+                <Select 
+                  value={filtroFilial} 
+                  onValueChange={setFiltroFilial}
+                  disabled={usuarioLogado?.tipo === 'colaborador'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {usuarioLogado?.tipo === 'admin' && (
+                      <SelectItem value="todas">Todas</SelectItem>
+                    )}
+                    {filiais.map(f => (
+                      <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {usuarioLogado?.tipo === 'colaborador' && (
+                  <p className="text-xs text-muted-foreground">
+                    Fixado para sua filial
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Mês</Label>
+                <Select value={filtroMes} onValueChange={setFiltroMes}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    {meses.map(m => (
+                      <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Matrícula</Label>
+                <Input
+                  placeholder="Filtrar por matrícula..."
+                  value={filtroMatricula}
+                  onChange={(e) => setFiltroMatricula(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Filial</Label>
-              <Select value={filtroFilial} onValueChange={setFiltroFilial}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas</SelectItem>
-                  {filiais.map(f => (
-                    <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+            {/* Linha 2 - Busca */}
+            <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-2">
+                <Label>Busca</Label>
+                <Input
+                  placeholder="Buscar por colaborador, observação..."
+                  value={filtroBusca}
+                  onChange={(e) => setFiltroBusca(e.target.value)}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Mês</Label>
-              <Select value={filtroMes} onValueChange={setFiltroMes}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {meses.map(m => (
-                    <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+            {/* Linha 3 - Filtros Numéricos */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Faltas</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroFaltasMin}
+                    onChange={(e) => setFiltroFaltasMin(e.target.value)}
+                    min="0"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroFaltasMax}
+                    onChange={(e) => setFiltroFaltasMax(e.target.value)}
+                    min="0"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Advertências</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroAdvertenciasMin}
+                    onChange={(e) => setFiltroAdvertenciasMin(e.target.value)}
+                    min="0"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroAdvertenciasMax}
+                    onChange={(e) => setFiltroAdvertenciasMax(e.target.value)}
+                    min="0"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Suspensões</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroSuspensoesMin}
+                    onChange={(e) => setFiltroSuspensoesMin(e.target.value)}
+                    min="0"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroSuspensoesMax}
+                    onChange={(e) => setFiltroSuspensoesMax(e.target.value)}
+                    min="0"
+                  />
+                </div>
+              </div>
             </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Busca</Label>
-              <Input
-                placeholder="Buscar por colaborador, observação..."
-                value={filtroBusca}
-                onChange={(e) => setFiltroBusca(e.target.value)}
-              />
+
+            {/* Linha 4 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Atestado (dias)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroAtestadoMin}
+                    onChange={(e) => setFiltroAtestadoMin(e.target.value)}
+                    min="0"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroAtestadoMax}
+                    onChange={(e) => setFiltroAtestadoMax(e.target.value)}
+                    min="0"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Férias (0=Não, 1=Sim)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroFeriasMin}
+                    onChange={(e) => setFiltroFeriasMin(e.target.value)}
+                    min="0"
+                    max="1"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroFeriasMax}
+                    onChange={(e) => setFiltroFeriasMax(e.target.value)}
+                    min="0"
+                    max="1"
+                  />
+                </div>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </FilterToggle>
 
       {/* Tabela */}
       <Card>
@@ -424,7 +708,7 @@ export default function DescontosPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => deletar(desconto.id)}
+                            onClick={() => abrirConfirmExcluir(desconto.id)}
                           >
                             <Trash2 className="w-4 h-4 text-red-600" />
                           </Button>
@@ -470,6 +754,7 @@ export default function DescontosPage() {
 
       {/* Dialog */}
       <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
+        {dialogAberto && (
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>{modoEdicao ? 'Editar' : 'Novo'} Desconto</DialogTitle>
@@ -586,12 +871,32 @@ export default function DescontosPage() {
             <Button variant="outline" onClick={() => setDialogAberto(false)}>
               Cancelar
             </Button>
-            <Button onClick={salvar} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={() => setConfirmSalvarOpen(true)} className="bg-green-600 hover:bg-green-700">
               Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
+        )}
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmSalvarOpen}
+        onOpenChange={setConfirmSalvarOpen}
+        title={modoEdicao ? 'Deseja realmente alterar?' : 'Deseja realmente salvar?'}
+        message={modoEdicao ? 'As alterações serão aplicadas a este desconto.' : 'O novo desconto será cadastrado.'}
+        onConfirm={salvar}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
+      <ConfirmDialog
+        open={confirmExcluirOpen}
+        onOpenChange={(open) => { setConfirmExcluirOpen(open); if (!open) setIdExcluir(null) }}
+        title="Deseja realmente excluir?"
+        message="Este desconto será removido."
+        onConfirm={executarExcluir}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
     </div>
   )
 }

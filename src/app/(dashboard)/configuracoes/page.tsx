@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Edit, Save, Settings as SettingsIcon, Users, Shield, Globe, Mail, Database, MessageSquare, FileText } from 'lucide-react'
@@ -49,6 +50,11 @@ export default function ConfiguracoesPage() {
   const [regras, setRegras] = useState<RegrasCalculo | null>(null)
   const [salvandoRegras, setSalvandoRegras] = useState(false)
   const [salvandoMeta, setSalvandoMeta] = useState(false)
+  const [confirmSalvarUsuarioOpen, setConfirmSalvarUsuarioOpen] = useState(false)
+  const [confirmExcluirUsuarioOpen, setConfirmExcluirUsuarioOpen] = useState(false)
+  const [idUsuarioExcluir, setIdUsuarioExcluir] = useState<string | null>(null)
+  const [confirmSalvarMetaOpen, setConfirmSalvarMetaOpen] = useState(false)
+  const [confirmSalvarRegrasOpen, setConfirmSalvarRegrasOpen] = useState(false)
 
   const supabase = createClient()
 
@@ -175,7 +181,7 @@ export default function ConfiguracoesPage() {
     setEmailUsuario(usuario.email)
     setSenhaUsuario('')
     setTipoUsuario(usuario.tipo)
-    setFilialUsuario(usuario.id_filial || '')
+    setFilialUsuario(usuario.id_filial || 'nenhuma')
     setAtivoUsuario(usuario.ativo)
     setDialogUsuarioAberto(true)
   }
@@ -184,6 +190,9 @@ export default function ConfiguracoesPage() {
     if (!usuarioEditando) return
 
     try {
+      // Converter "nenhuma" para null antes de salvar
+      const filialParaSalvar = filialUsuario === 'nenhuma' || filialUsuario === '' ? null : filialUsuario
+      
       // Usar função RPC para evitar problemas de RLS
       const { error } = await supabase.rpc('update_usuario_by_admin', {
         usuario_id: usuarioEditando.id,
@@ -191,7 +200,7 @@ export default function ConfiguracoesPage() {
         novo_email: emailUsuario,
         nova_senha: senhaUsuario || null,
         novo_tipo: tipoUsuario,
-        nova_filial: filialUsuario || null,
+        nova_filial: filialParaSalvar,
         novo_ativo: ativoUsuario
       })
 
@@ -206,18 +215,23 @@ export default function ConfiguracoesPage() {
     }
   }
 
-  const deletarUsuario = async (id: string) => {
-    if (!confirm('Tem certeza que deseja excluir este usuário?')) return
+  const abrirConfirmExcluirUsuario = (id: string) => {
+    setIdUsuarioExcluir(id)
+    setConfirmExcluirUsuarioOpen(true)
+  }
 
+  const executarExcluirUsuario = async () => {
+    if (!idUsuarioExcluir) return
     try {
       const { error } = await supabase
         .from('usuarios')
         .delete()
-        .eq('id', id)
+        .eq('id', idUsuarioExcluir)
 
       if (error) throw error
       toast.success('Usuário excluído')
       carregarUsuarios()
+      setIdUsuarioExcluir(null)
     } catch (error) {
       console.error('Erro ao deletar usuário:', error)
       toast.error('Erro ao excluir usuário')
@@ -468,6 +482,7 @@ export default function ConfiguracoesPage() {
 
       {/* Dialog de Edição de Usuário */}
       <Dialog open={dialogUsuarioAberto} onOpenChange={setDialogUsuarioAberto}>
+        {dialogUsuarioAberto && (
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Usuário</DialogTitle>
@@ -515,12 +530,12 @@ export default function ConfiguracoesPage() {
             </div>
             <div className="space-y-2">
               <Label>Filial</Label>
-              <Select value={filialUsuario} onValueChange={setFilialUsuario}>
+              <Select value={filialUsuario || "nenhuma"} onValueChange={(v) => setFilialUsuario(v === "nenhuma" ? "" : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Nenhuma</SelectItem>
+                  <SelectItem value="nenhuma">Nenhuma</SelectItem>
                   {filiais.map(f => (
                     <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
                   ))}
@@ -542,16 +557,18 @@ export default function ConfiguracoesPage() {
             <Button variant="outline" onClick={() => setDialogUsuarioAberto(false)}>
               Cancelar
             </Button>
-            <Button onClick={salvarUsuario} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={() => setConfirmSalvarUsuarioOpen(true)} className="bg-green-600 hover:bg-green-700">
               <Save className="w-4 h-4 mr-2" />
               Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
+        )}
       </Dialog>
 
       {/* Dialog Editar Meta */}
       <Dialog open={dialogMetaAberto} onOpenChange={setDialogMetaAberto}>
+        {dialogMetaAberto && (
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Editar Meta de Produtividade</DialogTitle>
@@ -573,15 +590,17 @@ export default function ConfiguracoesPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogMetaAberto(false)}>Cancelar</Button>
-            <Button onClick={salvarMeta} disabled={salvandoMeta} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={() => setConfirmSalvarMetaOpen(true)} disabled={salvandoMeta} className="bg-green-600 hover:bg-green-700">
               {salvandoMeta ? 'Salvando...' : 'Salvar'}
             </Button>
           </DialogFooter>
         </DialogContent>
+        )}
       </Dialog>
 
       {/* Dialog Editar Regras */}
       <Dialog open={dialogRegrasAberto} onOpenChange={setDialogRegrasAberto}>
+        {dialogRegrasAberto && (
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Editar Regras de Cálculo</DialogTitle>
@@ -778,12 +797,50 @@ export default function ConfiguracoesPage() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogRegrasAberto(false)}>Cancelar</Button>
-            <Button onClick={salvarRegras} disabled={salvandoRegras || !regras} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={() => setConfirmSalvarRegrasOpen(true)} disabled={salvandoRegras || !regras} className="bg-green-600 hover:bg-green-700">
               {salvandoRegras ? 'Salvando...' : 'Salvar'}
             </Button>
           </DialogFooter>
         </DialogContent>
+        )}
       </Dialog>
+
+      <ConfirmDialog
+        open={confirmSalvarUsuarioOpen}
+        onOpenChange={setConfirmSalvarUsuarioOpen}
+        title="Deseja realmente alterar?"
+        message="As alterações serão aplicadas a este usuário."
+        onConfirm={salvarUsuario}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
+      <ConfirmDialog
+        open={confirmExcluirUsuarioOpen}
+        onOpenChange={(open) => { setConfirmExcluirUsuarioOpen(open); if (!open) setIdUsuarioExcluir(null) }}
+        title="Deseja realmente excluir este usuário?"
+        message="O usuário será removido."
+        onConfirm={executarExcluirUsuario}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
+      <ConfirmDialog
+        open={confirmSalvarMetaOpen}
+        onOpenChange={setConfirmSalvarMetaOpen}
+        title="Deseja realmente alterar?"
+        message="A meta de produtividade será atualizada."
+        onConfirm={salvarMeta}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
+      <ConfirmDialog
+        open={confirmSalvarRegrasOpen}
+        onOpenChange={setConfirmSalvarRegrasOpen}
+        title="Deseja realmente alterar?"
+        message="As regras de cálculo serão atualizadas."
+        onConfirm={salvarRegras}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
     </div>
   )
 }

@@ -1,0 +1,417 @@
+[
+  {
+    "id": "TC001",
+    "title": "User Authentication Success",
+    "description": "Verify that a user with valid credentials can successfully log in and access the system with the appropriate role-based access.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the login page"
+      },
+      {
+        "type": "action",
+        "description": "Enter valid username and password"
+      },
+      {
+        "type": "action",
+        "description": "Submit login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user is authenticated and redirected to the dashboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user role permissions are applied correctly"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "User Authentication Failure with Invalid Credentials",
+    "description": "Verify that a user with invalid credentials is denied access and an appropriate error message is shown.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the login page"
+      },
+      {
+        "type": "action",
+        "description": "Enter invalid username or password"
+      },
+      {
+        "type": "action",
+        "description": "Submit login form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login fails"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify appropriate error message is displayed"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "Dashboard KPI Display Accuracy",
+    "description": "Ensure all KPIs (productivity bonus, percentage achievement, total loads, orders, tonnage, volume, pallets estimation, average handling time) are accurately calculated and displayed with correct data.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as user with dashboard access"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to the Dashboard page"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify each KPI value is displayed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify KPI values match expected calculations from backend data"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "Dashboard Filters Functionality",
+    "description": "Verify that filter parameters for time range and operational parameters update the KPIs and charts accurately and dynamically.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Access the Dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Apply different time filters (day, week, month, custom range)"
+      },
+      {
+        "type": "action",
+        "description": "Apply operational parameter filters (e.g., branch, employee)"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify charts and KPIs update to reflect filtered data"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify data shown is consistent with filter selections"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "Excel Upload: Valid File Preview and Validation",
+    "description": "Verify the system correctly previews and validates a well-formed Excel (.xlsx) file before persistence, including automatic column detection and validation of required data.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Excel upload page"
+      },
+      {
+        "type": "action",
+        "description": "Upload a valid Excel file with correct columns and data"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the file content is previewed correctly"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify automatic column detection maps columns properly"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify validation checks pass with no errors"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Excel Upload: Handle Invalid Data and Show Errors",
+    "description": "Ensure invalid Excel file data triggers appropriate validation errors and prevents persistence.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Excel upload page"
+      },
+      {
+        "type": "action",
+        "description": "Upload an Excel file with missing required fields and invalid data types"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify validation catches errors and displays clear messages"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify upload does not persist invalid data"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Excel Upload: Duplicate Data Prevention",
+    "description": "Verify the system prevents persistence of duplicate records during Excel import and notifies the user accordingly.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Upload an Excel file with records that duplicate existing database entries"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify duplicate detection logic identifies duplicates"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify system prevents duplicate entries from being saved"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify user receives appropriate feedback about duplicates"
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Productivity Management: Assign Employee to Load",
+    "description": "Ensure users can assign an employee to a load record and the assignment persists without errors.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to productivity management page"
+      },
+      {
+        "type": "action",
+        "description": "Select a load record"
+      },
+      {
+        "type": "action",
+        "description": "Assign a valid employee from the dropdown"
+      },
+      {
+        "type": "action",
+        "description": "Save the changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify assignment is saved and visible on the UI and backend"
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Productivity Management: Inline Editing and Calculation",
+    "description": "Validate inline editing of time tracking, error logging, and notes updates the productivity record correctly and triggers recalculation of productivity metrics.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open productivity record inline editor"
+      },
+      {
+        "type": "action",
+        "description": "Modify operational data fields such as handling time and errors"
+      },
+      {
+        "type": "action",
+        "description": "Save changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify changes persist"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify productivity bonus and related metrics recalculate correctly"
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "Discount Rule Application: Absence Discount",
+    "description": "Verify the system automatically applies discounts based on recorded absences and reflects the impact on monthly bonus calculation.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Create a discount record for absence for an employee"
+      },
+      {
+        "type": "action",
+        "description": "Trigger or view monthly bonus calculation"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the absence discount is applied correctly to the bonus amount"
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "Discount Rule Application: Warning and Suspension Discounts",
+    "description": "Ensure warnings and suspensions trigger the correct discount rules impacting the employee bonus as per business logic.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Add a warning discount record to an employee"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify warning discount affects bonus as per rules"
+      },
+      {
+        "type": "action",
+        "description": "Add a suspension discount record"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify suspension discount is applied correctly on bonus"
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "Base System Employee Management: CRUD Operations",
+    "description": "Verify that administrators can create, read, update, and delete employee records through the management interface and changes persist correctly.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to employee management panel"
+      },
+      {
+        "type": "action",
+        "description": "Create a new employee record with valid data"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new employee appears in the list"
+      },
+      {
+        "type": "action",
+        "description": "Update the employee's information"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify updates persist"
+      },
+      {
+        "type": "action",
+        "description": "Delete the employee record"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify employee record is removed"
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "Base System Branch Management: Bulk Import and Export",
+    "description": "Check that branch records can be imported and exported correctly through Excel files, ensuring data integrity and format correctness.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Export existing branch data to Excel"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the exported Excel contains correct and complete branch information"
+      },
+      {
+        "type": "action",
+        "description": "Modify Excel file for import with valid branch data"
+      },
+      {
+        "type": "action",
+        "description": "Import modified Excel of branches"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify branch data updates persist and reflect on UI"
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "Report Generation: Export Operation Performance Report",
+    "description": "Ensure user can generate and export operational performance reports with selected filters, and exported data matches applied criteria.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to report generation module"
+      },
+      {
+        "type": "action",
+        "description": "Select date range and operational filters"
+      },
+      {
+        "type": "action",
+        "description": "Generate the report"
+      },
+      {
+        "type": "action",
+        "description": "Export report in supported format"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify exported report data matches selected filters and UI data"
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "Report Generation: Validation on Missing Required Filters",
+    "description": "Verify the system enforces selection of required filters before allowing report generation and exports, showing clear error messages if filters are missing.",
+    "category": "error handling",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to report generation page"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to generate report without selecting required filters"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify system blocks report generation"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify clear error message is presented"
+      }
+    ]
+  }
+]

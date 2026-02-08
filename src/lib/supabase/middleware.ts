@@ -65,7 +65,7 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Rotas administrativas - apenas para admin
+    // Rotas administrativas - apenas para admin (cadastros liberado para admin e colaborador)
     const adminRoutes = ['/configuracoes']
     const isAdminRoute = adminRoutes.some(route => request.nextUrl.pathname.startsWith(route))
     
@@ -75,8 +75,9 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Se está na página de login/cadastro e já está autenticado, redirecionar
-    if (isPublicRoute) {
+    // Se está na página de login e já está autenticado, redirecionar
+    // Mas permitir acesso a /cadastro mesmo autenticado (para admins cadastrarem novos usuários)
+    if (request.nextUrl.pathname.startsWith('/login')) {
       const url = request.nextUrl.clone()
       url.pathname = usuario?.tipo === 'novo' ? '/temporaria' : '/dashboard'
       return NextResponse.redirect(url)

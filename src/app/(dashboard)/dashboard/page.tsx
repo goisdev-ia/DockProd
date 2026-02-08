@@ -68,6 +68,8 @@ interface FechamentoChartRow {
   volume_total: number
   paletes_total: number
   valor_descontos: number
+  erro_separacao_total: number
+  erro_entregas_total: number
 }
 
 interface ResumoColaboradorRow {
@@ -155,37 +157,20 @@ const PERIODO_OPCOES: { value: PeriodoOption; label: string }[] = [
 ]
 
 export default function DashboardPage() {
+  const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
   const [filialSelecionada, setFilialSelecionada] = useState<string>('todas')
-  const [periodoSelecionado, setPeriodoSelecionado] = useState<string>('mes_atual')
+  const [periodoSelecionado, setPeriodoSelecionado] = useState<string>('ano_atual')
   const [busca, setBusca] = useState('')
   const [buscaDebounced, setBuscaDebounced] = useState('')
   const [dataCargaInicio, setDataCargaInicio] = useState<string>('')
   const [dataCargaFim, setDataCargaFim] = useState<string>('')
   const [colaboradorIds, setColaboradorIds] = useState<string[]>([])
-  const [filtroCarga, setFiltroCarga] = useState('__TODOS__')
-  const [filtroNotaFiscal, setFiltroNotaFiscal] = useState('__TODOS__')
   const [filtroCliente, setFiltroCliente] = useState('__TODOS__')
-  const [filtroRede, setFiltroRede] = useState('__TODOS__')
-  const [filtroCidadeCliente, setFiltroCidadeCliente] = useState('__TODOS__')
-  const [filtroUf, setFiltroUf] = useState('__TODOS__')
-  const [filtroProduto, setFiltroProduto] = useState('__TODOS__')
-  const [filtroFamilia, setFiltroFamilia] = useState('__TODOS__')
-  const [filtroTempoMin, setFiltroTempoMin] = useState<string>('')
-  const [filtroTempoMax, setFiltroTempoMax] = useState<string>('')
-  const [filtroResultadoMin, setFiltroResultadoMin] = useState<string>('')
-  const [filtroResultadoMax, setFiltroResultadoMax] = useState<string>('')
-  const [periodoEvolucao, setPeriodoEvolucao] = useState<PeriodoOption>('mes_atual')
+  const [periodoEvolucao, setPeriodoEvolucao] = useState<PeriodoOption>('trimestre_atual')
   const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
   const [colaboradores, setColaboradores] = useState<{ id: string; nome: string }[]>([])
   const [showFilters, setShowFilters] = useState(true)
-  const [opcoesCargas, setOpcoesCargas] = useState<string[]>([])
-  const [opcoesNotasFiscais, setOpcoesNotasFiscais] = useState<string[]>([])
   const [opcoesClientes, setOpcoesClientes] = useState<string[]>([])
-  const [opcoesRedes, setOpcoesRedes] = useState<string[]>([])
-  const [opcoesCidades, setOpcoesCidades] = useState<string[]>([])
-  const [opcoesUfs, setOpcoesUfs] = useState<string[]>([])
-  const [opcoesProdutos, setOpcoesProdutos] = useState<string[]>([])
-  const [opcoesFamilias, setOpcoesFamilias] = useState<string[]>([])
   const [kpis, setKpis] = useState({
     totalProdutividade: 0,
     percentualAtingimento: 0,
@@ -203,6 +188,28 @@ export default function DashboardPage() {
   const [resumoColaborador, setResumoColaborador] = useState<ResumoColaboradorRow[]>([])
   const [resumoFilial, setResumoFilial] = useState<ResumoFilialRow[]>([])
   const [evolucaoDataInterna, setEvolucaoDataInterna] = useState<EvolucaoRow[]>([])
+
+  const carregarUsuarioLogado = useCallback(async () => {
+    const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (user) {
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('tipo, id_filial')
+        .eq('id', user.id)
+        .single()
+      
+      if (usuario) {
+        setUsuarioLogado(usuario)
+        
+        // Se for colaborador, fixar a filial
+        if (usuario.tipo === 'colaborador' && usuario.id_filial) {
+          setFilialSelecionada(usuario.id_filial)
+        }
+      }
+    }
+  }, [])
 
   const carregarFiliais = useCallback(async () => {
     const supabase = createClient()
@@ -223,49 +230,10 @@ export default function DashboardPage() {
 
   const carregarOpcoesFiltros = useCallback(async () => {
     const supabase = createClient()
-    
-    const [cargas, nfs, clientes, redes, cidades, ufs, produtos, familias] = await Promise.all([
-      supabase.from('dados_produtividade').select('carga').order('carga'),
-      supabase.from('dados_produtividade').select('nota_fiscal').order('nota_fiscal'),
-      supabase.from('dados_produtividade').select('cliente').order('cliente'),
-      supabase.from('dados_produtividade').select('rede').order('rede'),
-      supabase.from('dados_produtividade').select('cidade_cliente').order('cidade_cliente'),
-      supabase.from('dados_produtividade').select('uf').order('uf'),
-      supabase.from('dados_produtividade').select('produto').order('produto'),
-      supabase.from('dados_produtividade').select('familia').order('familia'),
-    ])
-
-    if (cargas.data) {
-      const uniqueCargas = Array.from(new Set(cargas.data.map(r => r.carga).filter(Boolean)))
-      setOpcoesCargas(uniqueCargas)
-    }
-    if (nfs.data) {
-      const uniqueNfs = Array.from(new Set(nfs.data.map(r => r.nota_fiscal).filter(Boolean)))
-      setOpcoesNotasFiscais(uniqueNfs)
-    }
-    if (clientes.data) {
-      const uniqueClientes = Array.from(new Set(clientes.data.map(r => r.cliente).filter(Boolean)))
+    const { data } = await supabase.from('dados_produtividade').select('cliente').order('cliente')
+    if (data) {
+      const uniqueClientes = Array.from(new Set(data.map(r => r.cliente).filter(Boolean)))
       setOpcoesClientes(uniqueClientes)
-    }
-    if (redes.data) {
-      const uniqueRedes = Array.from(new Set(redes.data.map(r => r.rede).filter(Boolean)))
-      setOpcoesRedes(uniqueRedes)
-    }
-    if (cidades.data) {
-      const uniqueCidades = Array.from(new Set(cidades.data.map(r => r.cidade_cliente).filter(Boolean)))
-      setOpcoesCidades(uniqueCidades)
-    }
-    if (ufs.data) {
-      const uniqueUfs = Array.from(new Set(ufs.data.map(r => r.uf).filter(Boolean)))
-      setOpcoesUfs(uniqueUfs)
-    }
-    if (produtos.data) {
-      const uniqueProdutos = Array.from(new Set(produtos.data.map(r => r.produto).filter(Boolean)))
-      setOpcoesProdutos(uniqueProdutos)
-    }
-    if (familias.data) {
-      const uniqueFamilias = Array.from(new Set(familias.data.map(r => r.familia).filter(Boolean)))
-      setOpcoesFamilias(uniqueFamilias)
     }
   }, [])
 
@@ -285,19 +253,10 @@ export default function DashboardPage() {
       p_data_fim: toISODate(datasPrincipal.data_fim),
       p_busca: buscaDebounced?.trim() || null,
       p_id_colaborador: colaboradorIds.length > 0 ? colaboradorIds : null,
-      p_carga: (filtroCarga && filtroCarga !== '__TODOS__') ? filtroCarga.trim() : null,
-      p_nota_fiscal: (filtroNotaFiscal && filtroNotaFiscal !== '__TODOS__') ? filtroNotaFiscal.trim() : null,
       p_cliente: (filtroCliente && filtroCliente !== '__TODOS__') ? filtroCliente.trim() : null,
-      p_rede: (filtroRede && filtroRede !== '__TODOS__') ? filtroRede.trim() : null,
-      p_cidade_cliente: (filtroCidadeCliente && filtroCidadeCliente !== '__TODOS__') ? filtroCidadeCliente.trim() : null,
-      p_uf: (filtroUf && filtroUf !== '__TODOS__') ? filtroUf.trim() : null,
-      p_produto: (filtroProduto && filtroProduto !== '__TODOS__') ? filtroProduto.trim() : null,
-      p_familia: (filtroFamilia && filtroFamilia !== '__TODOS__') ? filtroFamilia.trim() : null,
-      p_tempo_min: filtroTempoMin !== '' ? Number(filtroTempoMin) : null,
-      p_tempo_max: filtroTempoMax !== '' ? Number(filtroTempoMax) : null,
     }
     return p
-  }, [idFilial, datasPrincipal, buscaDebounced, colaboradorIds, filtroCarga, filtroNotaFiscal, filtroCliente, filtroRede, filtroCidadeCliente, filtroUf, filtroProduto, filtroFamilia, filtroTempoMin, filtroTempoMax])
+  }, [idFilial, datasPrincipal, buscaDebounced, colaboradorIds, filtroCliente])
 
   const carregarKPIs = useCallback(async () => {
     const supabase = createClient()
@@ -329,6 +288,8 @@ export default function DashboardPage() {
           volume_total,
           paletes_total,
           valor_descontos,
+          erro_separacao_total,
+          erro_entregas_total,
           percentual_atingimento,
           colaboradores (nome),
           filiais (nome)
@@ -339,6 +300,10 @@ export default function DashboardPage() {
           .map(({ mes, ano }) => `and(mes.eq."${mes}",ano.eq.${ano})`)
           .join(',')
         queryFechamento = queryFechamento.or(orClause)
+      }
+      // Sincronizar filtro de colaborador com fechamento
+      if (colaboradorIds.length > 0) {
+        queryFechamento = queryFechamento.in('id_colaborador', colaboradorIds)
       }
       const { data: fechamentos } = await queryFechamento
       
@@ -365,6 +330,8 @@ export default function DashboardPage() {
         volume_total: Number(f.volume_total ?? 0),
         paletes_total: Number(f.paletes_total ?? 0),
         valor_descontos: Number(f.valor_descontos ?? 0),
+        erro_separacao_total: Number(f.erro_separacao_total ?? 0),
+        erro_entregas_total: Number(f.erro_entregas_total ?? 0),
       }))
       setFechamentoList(chartList)
 
@@ -437,12 +404,13 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [rpcParams, datasEvolucao, periodoSelecionado, idFilial])
+  }, [rpcParams, datasEvolucao, periodoSelecionado, idFilial, colaboradorIds])
 
   useEffect(() => {
+    carregarUsuarioLogado()
     carregarFiliais()
     carregarOpcoesFiltros()
-  }, [carregarFiliais, carregarOpcoesFiltros])
+  }, [carregarUsuarioLogado, carregarFiliais, carregarOpcoesFiltros])
 
   useEffect(() => {
     carregarColaboradores()
@@ -479,8 +447,11 @@ export default function DashboardPage() {
     return partes[0] || nomeCompleto
   }
 
-  const isPeriodoMensalOuMaior = ['mes_atual', 'mes_anterior', 'trimestre_atual', 'trimestre_anterior', 'semestre_atual', 'semestre_anterior', 'ano_atual', 'ano_anterior'].includes(periodoSelecionado)
-  const porColaboradorR$ = fechamentoList.reduce((acc, f) => {
+  const isPeriodoMensalOuMaior = useMemo(
+    () => ['mes_atual', 'mes_anterior', 'trimestre_atual', 'trimestre_anterior', 'semestre_atual', 'semestre_anterior', 'ano_atual', 'ano_anterior'].includes(periodoSelecionado),
+    [periodoSelecionado]
+  )
+  const porColaboradorR$ = useMemo(() => fechamentoList.reduce((acc, f) => {
     const nome = f.colaborador_nome || 'Sem nome'
     if (!acc[nome]) acc[nome] = { nome, produtividade_final: 0, peso_liquido_total: 0, volume_total: 0, paletes_total: 0, valor_descontos: 0 }
     acc[nome].produtividade_final += f.produtividade_final
@@ -489,17 +460,26 @@ export default function DashboardPage() {
     acc[nome].paletes_total += f.paletes_total
     acc[nome].valor_descontos += f.valor_descontos
     return acc
-  }, {} as Record<string, { nome: string; produtividade_final: number; peso_liquido_total: number; volume_total: number; paletes_total: number; valor_descontos: number }>)
-  const porColaboradorArrTotais = isPeriodoMensalOuMaior
+  }, {} as Record<string, { nome: string; produtividade_final: number; peso_liquido_total: number; volume_total: number; paletes_total: number; valor_descontos: number }>), [fechamentoList])
+  const porColaboradorArrTotais = useMemo(() => isPeriodoMensalOuMaior
     ? Object.values(porColaboradorR$).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total)
-    : resumoColaborador.map((r) => ({ nome: r.nome, produtividade_final: 0, peso_liquido_total: r.peso_total, volume_total: r.volume_total, paletes_total: r.paletes_total, valor_descontos: 0 })).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total)
-  const porColaboradorArrR$ = Object.values(porColaboradorR$).sort((a, b) => b.produtividade_final - a.produtividade_final).slice(0, 10)
-  const porColaboradorArr = porColaboradorArrTotais.slice(0, 10)
-  const descontosPorColaborador = Object.values(porColaboradorR$)
-    .filter(c => c.valor_descontos > 0)
+    : resumoColaborador.map((r) => ({ nome: r.nome, produtividade_final: 0, peso_liquido_total: r.peso_total, volume_total: r.volume_total, paletes_total: r.paletes_total, valor_descontos: 0 })).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total),
+  [isPeriodoMensalOuMaior, porColaboradorR$, resumoColaborador])
+  const porColaboradorArrR$ = useMemo(() => Object.values(porColaboradorR$).sort((a, b) => b.produtividade_final - a.produtividade_final).slice(0, 10), [porColaboradorR$])
+  const porColaboradorArr = useMemo(() => porColaboradorArrTotais.slice(0, 10), [porColaboradorArrTotais])
+  const descontosPorColaborador = useMemo(() => Object.values(porColaboradorR$)
     .sort((a, b) => b.valor_descontos - a.valor_descontos)
-    .slice(0, 10)
-  const porFilialR$ = fechamentoList.reduce((acc, f) => {
+    .slice(0, 10), [porColaboradorR$])
+  const top3Erros = useMemo(() => {
+    const porColab = fechamentoList.reduce((acc, f) => {
+      const nome = f.colaborador_nome || 'Sem nome'
+      if (!acc[nome]) acc[nome] = { nome, totalErros: 0 }
+      acc[nome].totalErros += (f.erro_separacao_total ?? 0) + (f.erro_entregas_total ?? 0)
+      return acc
+    }, {} as Record<string, { nome: string; totalErros: number }>)
+    return Object.values(porColab).sort((a, b) => b.totalErros - a.totalErros).slice(0, 3)
+  }, [fechamentoList])
+  const porFilialR$ = useMemo(() => fechamentoList.reduce((acc, f) => {
     const nome = f.filial_nome || 'Sem filial'
     if (!acc[nome]) acc[nome] = { nome, produtividade_final: 0, peso_liquido_total: 0, volume_total: 0, paletes_total: 0 }
     acc[nome].produtividade_final += f.produtividade_final
@@ -507,24 +487,25 @@ export default function DashboardPage() {
     acc[nome].volume_total += f.volume_total
     acc[nome].paletes_total += f.paletes_total
     return acc
-  }, {} as Record<string, { nome: string; produtividade_final: number; peso_liquido_total: number; volume_total: number; paletes_total: number }>)
-  const porFilialArrTotais = isPeriodoMensalOuMaior
+  }, {} as Record<string, { nome: string; produtividade_final: number; peso_liquido_total: number; volume_total: number; paletes_total: number }>), [fechamentoList])
+  const porFilialArrTotais = useMemo(() => isPeriodoMensalOuMaior
     ? Object.values(porFilialR$).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total)
-    : resumoFilial.map((r) => ({ nome: r.nome, produtividade_final: 0, peso_liquido_total: r.peso_total, volume_total: r.volume_total, paletes_total: r.paletes_total })).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total)
-  const porFilialArrR$ = Object.values(porFilialR$).sort((a, b) => b.produtividade_final - a.produtividade_final)
+    : resumoFilial.map((r) => ({ nome: r.nome, produtividade_final: 0, peso_liquido_total: r.peso_total, volume_total: r.volume_total, paletes_total: r.paletes_total })).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total),
+  [isPeriodoMensalOuMaior, porFilialR$, resumoFilial])
+  const porFilialArrR$ = useMemo(() => Object.values(porFilialR$).sort((a, b) => b.produtividade_final - a.produtividade_final), [porFilialR$])
   const porFilialArr = porFilialArrTotais
-  const evolucaoFormatada = evolucaoDataInterna.map((r) => ({
+  const evolucaoFormatada = useMemo(() => evolucaoDataInterna.map((r) => ({
     ...r,
     data_carga: format(new Date(r.data_carga + 'T12:00:00'), 'dd/MM', { locale: ptBR }),
-  }))
-  const pieData = porFilialArrR$.map((f, i) => ({ name: f.nome, value: f.produtividade_final, fill: ['#166534', '#15803d', '#16a34a', '#22c55e', '#4ade80'][i % 5] })).filter((d) => d.value > 0)
-  const top3Prod = porColaboradorArrR$.slice(0, 3)
-  const top3Kg = [...porColaboradorArrTotais].sort((a, b) => b.peso_liquido_total - a.peso_liquido_total).slice(0, 3)
-  const top3Vol = [...porColaboradorArrTotais].sort((a, b) => b.volume_total - a.volume_total).slice(0, 3)
-  const top3Plt = [...porColaboradorArrTotais].sort((a, b) => b.paletes_total - a.paletes_total).slice(0, 3)
-  const top3Cargas = [...resumoColaborador].sort((a, b) => b.total_cargas - a.total_cargas).slice(0, 3)
-  const top3Pedidos = [...resumoColaborador].sort((a, b) => b.total_pedidos - a.total_pedidos).slice(0, 3)
-  const top3TempoMedio = [...resumoColaborador].sort((a, b) => b.tempo_medio - a.tempo_medio).slice(0, 3)
+  })), [evolucaoDataInterna])
+  const pieData = useMemo(() => porFilialArrR$.map((f, i) => ({ name: f.nome, value: f.produtividade_final, fill: ['#166534', '#15803d', '#16a34a', '#22c55e', '#4ade80'][i % 5] })).filter((d) => d.value > 0), [porFilialArrR$])
+  const top3Prod = useMemo(() => porColaboradorArrR$.slice(0, 3), [porColaboradorArrR$])
+  const top3Kg = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.peso_liquido_total - a.peso_liquido_total).slice(0, 3), [porColaboradorArrTotais])
+  const top3Vol = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.volume_total - a.volume_total).slice(0, 3), [porColaboradorArrTotais])
+  const top3Plt = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.paletes_total - a.paletes_total).slice(0, 3), [porColaboradorArrTotais])
+  const top3Cargas = useMemo(() => [...resumoColaborador].sort((a, b) => b.total_cargas - a.total_cargas).slice(0, 3), [resumoColaborador])
+  const top3Pedidos = useMemo(() => [...resumoColaborador].sort((a, b) => b.total_pedidos - a.total_pedidos).slice(0, 3), [resumoColaborador])
+  const top3TempoMedio = useMemo(() => [...resumoColaborador].sort((a, b) => b.tempo_medio - a.tempo_medio).slice(0, 3), [resumoColaborador])
 
   return (
     <div className="space-y-6">
@@ -542,28 +523,51 @@ export default function DashboardPage() {
             <CardTitle>Filtros</CardTitle>
             <CardDescription>Altere os filtros para atualizar KPIs, gráficos e tabelas</CardDescription>
           </div>
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={() => setShowFilters(!showFilters)}
-            className="gap-2"
-          >
-            <Filter className="h-4 w-4" />
-            {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
-            {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (usuarioLogado?.tipo !== 'colaborador') setFilialSelecionada('todas')
+                setPeriodoSelecionado('ano_atual')
+                setDataCargaInicio('')
+                setDataCargaFim('')
+                setBusca('')
+                setColaboradorIds([])
+                setFiltroCliente('__TODOS__')
+              }}
+            >
+              Limpar filtros
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              className="gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              {showFilters ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+              {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
+          </div>
         </CardHeader>
         {showFilters && (
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label htmlFor="filial">Filial</Label>
-              <Select value={filialSelecionada} onValueChange={setFilialSelecionada}>
+              <Select 
+                value={filialSelecionada} 
+                onValueChange={setFilialSelecionada}
+                disabled={usuarioLogado?.tipo === 'colaborador'}
+              >
                 <SelectTrigger id="filial">
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="todas">Todas as Filiais</SelectItem>
+                  {usuarioLogado?.tipo === 'admin' && (
+                    <SelectItem value="todas">Todas as Filiais</SelectItem>
+                  )}
                   {filiais.map(filial => (
                     <SelectItem key={filial.id} value={filial.id}>
                       {filial.nome}
@@ -571,6 +575,11 @@ export default function DashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {usuarioLogado?.tipo === 'colaborador' && (
+                <p className="text-xs text-muted-foreground">
+                  Filial fixa conforme seu perfil
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="periodo">Período</Label>
@@ -636,36 +645,6 @@ export default function DashboardPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label>Carga</Label>
-              <Select value={filtroCarga} onValueChange={setFiltroCarga}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas as cargas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__TODOS__">Todas</SelectItem>
-                  {opcoesCargas.map((carga) => (
-                    <SelectItem key={carga} value={carga}>{carga}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Nota Fiscal</Label>
-              <Select value={filtroNotaFiscal} onValueChange={setFiltroNotaFiscal}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas as NFs" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__TODOS__">Todas</SelectItem>
-                  {opcoesNotasFiscais.slice(0, 100).map((nf) => (
-                    <SelectItem key={nf} value={nf}>{nf}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
             <div className="space-y-2">
               <Label>Cliente</Label>
               <Select value={filtroCliente} onValueChange={setFiltroCliente}>
@@ -679,92 +658,6 @@ export default function DashboardPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Rede</Label>
-              <Select value={filtroRede} onValueChange={setFiltroRede}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas as redes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__TODOS__">Todas</SelectItem>
-                  {opcoesRedes.map((rede) => (
-                    <SelectItem key={rede} value={rede}>{rede}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Cidade do Cliente</Label>
-              <Select value={filtroCidadeCliente} onValueChange={setFiltroCidadeCliente}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas as cidades" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__TODOS__">Todas</SelectItem>
-                  {opcoesCidades.slice(0, 100).map((cidade) => (
-                    <SelectItem key={cidade} value={cidade}>{cidade}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>UF</Label>
-              <Select value={filtroUf} onValueChange={setFiltroUf}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__TODOS__">Todos</SelectItem>
-                  {opcoesUfs.map((uf) => (
-                    <SelectItem key={uf} value={uf}>{uf}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Produto</Label>
-              <Select value={filtroProduto} onValueChange={setFiltroProduto}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos os produtos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__TODOS__">Todos</SelectItem>
-                  {opcoesProdutos.slice(0, 100).map((produto) => (
-                    <SelectItem key={produto} value={produto}>{produto}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Família</Label>
-              <Select value={filtroFamilia} onValueChange={setFiltroFamilia}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas as famílias" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__TODOS__">Todas</SelectItem>
-                  {opcoesFamilias.map((familia) => (
-                    <SelectItem key={familia} value={familia}>{familia}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Tempo mín. (h)</Label>
-              <Input type="number" step="0.1" placeholder="0" value={filtroTempoMin} onChange={(e) => setFiltroTempoMin(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Tempo máx. (h)</Label>
-              <Input type="number" step="0.1" placeholder="—" value={filtroTempoMax} onChange={(e) => setFiltroTempoMax(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Resultado mín. (R$)</Label>
-              <Input type="number" placeholder="—" value={filtroResultadoMin} onChange={(e) => setFiltroResultadoMin(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>Resultado máx. (R$)</Label>
-              <Input type="number" placeholder="—" value={filtroResultadoMax} onChange={(e) => setFiltroResultadoMax(e.target.value)} />
             </div>
           </div>
         </CardContent>
@@ -1169,10 +1062,21 @@ export default function DashboardPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base text-muted-foreground">Reservado</CardTitle>
+              <CardTitle className="text-base text-muted-foreground">Top 3 Colaboradores x Erros</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground text-sm">Reservado para futura métrica</p>
+              {top3Erros.length === 0 ? (
+                <p className="text-muted-foreground text-sm">Sem dados</p>
+              ) : (
+                <div className="space-y-2">
+                  {top3Erros.map((r, i) => (
+                    <div key={r.nome} className="flex justify-between items-center text-sm">
+                      <span className="font-medium">#{i + 1} {formatarNomeColaborador(r.nome)}</span>
+                      <span>{r.totalErros} erros</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

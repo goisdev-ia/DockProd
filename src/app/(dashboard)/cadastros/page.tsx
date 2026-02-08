@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Edit, Trash2, Plus, UserPlus, Download, Upload, Building2 } from 'lucide-react'
@@ -49,6 +50,10 @@ export default function CadastrosPage() {
   const [filialCodigo, setFilialCodigo] = useState('')
   const [filialNome, setFilialNome] = useState('')
   const [filialAtivo, setFilialAtivo] = useState(true)
+  const [confirmSalvarColabOpen, setConfirmSalvarColabOpen] = useState(false)
+  const [confirmSalvarFilialOpen, setConfirmSalvarFilialOpen] = useState(false)
+  const [confirmAlternarOpen, setConfirmAlternarOpen] = useState(false)
+  const [alternarPayload, setAlternarPayload] = useState<{ id: string; ativoAtual: boolean } | null>(null)
   const inputFileRef = useRef<HTMLInputElement>(null)
 
   const supabase = createClient()
@@ -248,19 +253,30 @@ export default function CadastrosPage() {
     }
   }
 
-  const alternarStatus = async (id: string, ativoAtual: boolean) => {
+  const abrirConfirmAlternar = (id: string, ativoAtual: boolean) => {
+    setAlternarPayload({ id, ativoAtual })
+    setConfirmAlternarOpen(true)
+  }
+
+  const executarAlternarStatus = async () => {
+    if (!alternarPayload) return
     try {
       const { error } = await supabase
         .from('colaboradores')
-        .update({ ativo: !ativoAtual })
-        .eq('id', id)
+        .update({ ativo: !alternarPayload.ativoAtual })
+        .eq('id', alternarPayload.id)
 
       if (error) throw error
       carregarDados()
+      setAlternarPayload(null)
     } catch (error) {
       console.error('Erro ao alterar status:', error)
       alert('Erro ao alterar status')
     }
+  }
+
+  const alternarStatus = async (id: string, ativoAtual: boolean) => {
+    abrirConfirmAlternar(id, ativoAtual)
   }
 
   return (
@@ -371,6 +387,7 @@ export default function CadastrosPage() {
 
       {/* Dialog */}
       <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
+        {dialogAberto && (
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{modoEdicao ? 'Editar' : 'Novo'} Colaborador</DialogTitle>
@@ -427,11 +444,12 @@ export default function CadastrosPage() {
             <Button variant="outline" onClick={() => setDialogAberto(false)}>
               Cancelar
             </Button>
-            <Button onClick={salvar} className="bg-green-600 hover:bg-green-700">
+            <Button onClick={() => setConfirmSalvarColabOpen(true)} className="bg-green-600 hover:bg-green-700">
               Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
+        )}
       </Dialog>
 
         </TabsContent>
@@ -489,6 +507,7 @@ export default function CadastrosPage() {
           </Card>
 
           <Dialog open={dialogFilialAberto} onOpenChange={setDialogFilialAberto}>
+            {dialogFilialAberto && (
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>{filialEditando ? 'Editar' : 'Nova'} Filial</DialogTitle>
@@ -512,12 +531,41 @@ export default function CadastrosPage() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setDialogFilialAberto(false)}>Cancelar</Button>
-                <Button onClick={salvarFilial} className="bg-green-600 hover:bg-green-700">Salvar</Button>
+                <Button onClick={() => setConfirmSalvarFilialOpen(true)} className="bg-green-600 hover:bg-green-700">Salvar</Button>
               </DialogFooter>
             </DialogContent>
+            )}
           </Dialog>
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={confirmSalvarColabOpen}
+        onOpenChange={setConfirmSalvarColabOpen}
+        title={modoEdicao ? 'Deseja realmente alterar?' : 'Deseja realmente salvar?'}
+        message={modoEdicao ? 'As alterações serão aplicadas a este colaborador.' : 'O novo colaborador será cadastrado.'}
+        onConfirm={salvar}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
+      <ConfirmDialog
+        open={confirmSalvarFilialOpen}
+        onOpenChange={setConfirmSalvarFilialOpen}
+        title={filialEditando ? 'Deseja realmente alterar?' : 'Deseja realmente salvar?'}
+        message={filialEditando ? 'As alterações serão aplicadas a esta filial.' : 'A nova filial será cadastrada.'}
+        onConfirm={salvarFilial}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
+      <ConfirmDialog
+        open={confirmAlternarOpen}
+        onOpenChange={(open) => { setConfirmAlternarOpen(open); if (!open) setAlternarPayload(null) }}
+        title="Deseja realmente alterar?"
+        message={alternarPayload ? (alternarPayload.ativoAtual ? 'O colaborador será desativado.' : 'O colaborador será ativado.') : ''}
+        onConfirm={executarAlternarStatus}
+        confirmLabel="Sim"
+        cancelLabel="Não"
+      />
     </div>
   )
 }

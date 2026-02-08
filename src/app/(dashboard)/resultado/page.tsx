@@ -1,15 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
 import { Calculator, RefreshCw, TrendingUp, AlertTriangle } from 'lucide-react'
+import { FilterToggle } from '@/components/FilterToggle'
 import { toast } from 'sonner'
 import {
   calcularProdutividadeBruta,
@@ -30,12 +32,49 @@ interface FechamentoExtendido extends Fechamento {
 
 export default function ResultadoPage() {
   const [fechamentos, setFechamentos] = useState<FechamentoExtendido[]>([])
+  const [fechamentosFiltrados, setFechamentosFiltrados] = useState<FechamentoExtendido[]>([])
   const [loading, setLoading] = useState(true)
   const [calculando, setCalculando] = useState(false)
   const [regrasCalculo, setRegrasCalculo] = useState<RegrasCalculo | null>(null)
   
   const [mesSelecionado, setMesSelecionado] = useState('')
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
+  
+  // Filtros adicionais
+  const [filtroColaborador, setFiltroColaborador] = useState('todos')
+  const [filtroFilial, setFiltroFilial] = useState('todas')
+  const [filtroBusca, setFiltroBusca] = useState('')
+  const [filtroVlrKgHsMin, setFiltroVlrKgHsMin] = useState('')
+  const [filtroVlrKgHsMax, setFiltroVlrKgHsMax] = useState('')
+  const [filtroVlrVolHsMin, setFiltroVlrVolHsMin] = useState('')
+  const [filtroVlrVolHsMax, setFiltroVlrVolHsMax] = useState('')
+  const [filtroVlrPltHsMin, setFiltroVlrPltHsMin] = useState('')
+  const [filtroVlrPltHsMax, setFiltroVlrPltHsMax] = useState('')
+  const [filtroProdBrutaMin, setFiltroProdBrutaMin] = useState('')
+  const [filtroProdBrutaMax, setFiltroProdBrutaMax] = useState('')
+  const [filtroProdFinalMin, setFiltroProdFinalMin] = useState('')
+  const [filtroProdFinalMax, setFiltroProdFinalMax] = useState('')
+  const [filtroMetaMin, setFiltroMetaMin] = useState('')
+  const [filtroMetaMax, setFiltroMetaMax] = useState('')
+  const [filtroMatricula, setFiltroMatricula] = useState('')
+  const [buscaDebounced, setBuscaDebounced] = useState('')
+  const [matriculaDebounced, setMatriculaDebounced] = useState('')
+  const [filtroVlrKgHsMinApplied, setFiltroVlrKgHsMinApplied] = useState('')
+  const [filtroVlrKgHsMaxApplied, setFiltroVlrKgHsMaxApplied] = useState('')
+  const [filtroVlrVolHsMinApplied, setFiltroVlrVolHsMinApplied] = useState('')
+  const [filtroVlrVolHsMaxApplied, setFiltroVlrVolHsMaxApplied] = useState('')
+  const [filtroVlrPltHsMinApplied, setFiltroVlrPltHsMinApplied] = useState('')
+  const [filtroVlrPltHsMaxApplied, setFiltroVlrPltHsMaxApplied] = useState('')
+  const [filtroProdBrutaMinApplied, setFiltroProdBrutaMinApplied] = useState('')
+  const [filtroProdBrutaMaxApplied, setFiltroProdBrutaMaxApplied] = useState('')
+  const [filtroProdFinalMinApplied, setFiltroProdFinalMinApplied] = useState('')
+  const [filtroProdFinalMaxApplied, setFiltroProdFinalMaxApplied] = useState('')
+  const [filtroMetaMinApplied, setFiltroMetaMinApplied] = useState('')
+  const [filtroMetaMaxApplied, setFiltroMetaMaxApplied] = useState('')
+  
+  const [colaboradores, setColaboradores] = useState<any[]>([])
+  const [filiais, setFiliais] = useState<any[]>([])
+  const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
   
   const supabase = createClient()
 
@@ -51,11 +90,161 @@ export default function ResultadoPage() {
   }, [])
 
   useEffect(() => {
+    carregarUsuarioLogado()
+  }, [])
+
+  useEffect(() => {
     if (mesSelecionado) {
       carregarRegrasCalculo()
       carregarFechamentos()
+      carregarColaboradores()
+      carregarFiliais()
     }
   }, [mesSelecionado, anoSelecionado])
+
+  const carregarUsuarioLogado = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (user) {
+      const { data: usuario } = await supabase
+        .from('usuarios')
+        .select('tipo, id_filial')
+        .eq('id', user.id)
+        .single()
+      
+      if (usuario) {
+        setUsuarioLogado(usuario)
+        
+        // Se for colaborador, fixar a filial
+        if (usuario.tipo === 'colaborador' && usuario.id_filial) {
+          setFiltroFilial(usuario.id_filial)
+        }
+      }
+    }
+  }
+
+  // Debounce para inputs de texto
+  useEffect(() => {
+    const timer = setTimeout(() => setBuscaDebounced(filtroBusca), 300)
+    return () => clearTimeout(timer)
+  }, [filtroBusca])
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMatriculaDebounced(filtroMatricula), 300)
+    return () => clearTimeout(timer)
+  }, [filtroMatricula])
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFiltroVlrKgHsMinApplied(filtroVlrKgHsMin)
+      setFiltroVlrKgHsMaxApplied(filtroVlrKgHsMax)
+      setFiltroVlrVolHsMinApplied(filtroVlrVolHsMin)
+      setFiltroVlrVolHsMaxApplied(filtroVlrVolHsMax)
+      setFiltroVlrPltHsMinApplied(filtroVlrPltHsMin)
+      setFiltroVlrPltHsMaxApplied(filtroVlrPltHsMax)
+      setFiltroProdBrutaMinApplied(filtroProdBrutaMin)
+      setFiltroProdBrutaMaxApplied(filtroProdBrutaMax)
+      setFiltroProdFinalMinApplied(filtroProdFinalMin)
+      setFiltroProdFinalMaxApplied(filtroProdFinalMax)
+      setFiltroMetaMinApplied(filtroMetaMin)
+      setFiltroMetaMaxApplied(filtroMetaMax)
+    }, 400)
+    return () => clearTimeout(t)
+  }, [filtroVlrKgHsMin, filtroVlrKgHsMax, filtroVlrVolHsMin, filtroVlrVolHsMax, filtroVlrPltHsMin, filtroVlrPltHsMax, filtroProdBrutaMin, filtroProdBrutaMax, filtroProdFinalMin, filtroProdFinalMax, filtroMetaMin, filtroMetaMax])
+
+  // Aplicar filtros quando mudarem (usa valores aplicados/debounced nos numéricos)
+  const aplicarFiltros = useCallback(() => {
+    let filtrados = [...fechamentos]
+
+    if (filtroColaborador && filtroColaborador !== 'todos') {
+      filtrados = filtrados.filter(f => f.id_colaborador === filtroColaborador)
+    }
+
+    if (filtroFilial && filtroFilial !== 'todas') {
+      filtrados = filtrados.filter(f => f.id_filial === filtroFilial)
+    }
+
+    if (buscaDebounced) {
+      const busca = buscaDebounced.toLowerCase()
+      filtrados = filtrados.filter(f =>
+        f.colaborador_nome?.toLowerCase().includes(busca) ||
+        f.filial_nome?.toLowerCase().includes(busca)
+      )
+    }
+
+    if (filtroVlrKgHsMinApplied !== '') {
+      const min = Number(filtroVlrKgHsMinApplied)
+      filtrados = filtrados.filter(f => f.valor_kg_hs >= min)
+    }
+
+    if (filtroVlrKgHsMaxApplied !== '') {
+      const max = Number(filtroVlrKgHsMaxApplied)
+      filtrados = filtrados.filter(f => f.valor_kg_hs <= max)
+    }
+
+    if (filtroVlrVolHsMinApplied !== '') {
+      const min = Number(filtroVlrVolHsMinApplied)
+      filtrados = filtrados.filter(f => f.valor_vol_hs >= min)
+    }
+
+    if (filtroVlrVolHsMaxApplied !== '') {
+      const max = Number(filtroVlrVolHsMaxApplied)
+      filtrados = filtrados.filter(f => f.valor_vol_hs <= max)
+    }
+
+    if (filtroVlrPltHsMinApplied !== '') {
+      const min = Number(filtroVlrPltHsMinApplied)
+      filtrados = filtrados.filter(f => f.valor_plt_hs >= min)
+    }
+
+    if (filtroVlrPltHsMaxApplied !== '') {
+      const max = Number(filtroVlrPltHsMaxApplied)
+      filtrados = filtrados.filter(f => f.valor_plt_hs <= max)
+    }
+
+    if (filtroProdBrutaMinApplied !== '') {
+      const min = Number(filtroProdBrutaMinApplied)
+      filtrados = filtrados.filter(f => f.produtividade_bruta >= min)
+    }
+
+    if (filtroProdBrutaMaxApplied !== '') {
+      const max = Number(filtroProdBrutaMaxApplied)
+      filtrados = filtrados.filter(f => f.produtividade_bruta <= max)
+    }
+
+    if (filtroProdFinalMinApplied !== '') {
+      const min = Number(filtroProdFinalMinApplied)
+      filtrados = filtrados.filter(f => f.produtividade_final >= min)
+    }
+
+    if (filtroProdFinalMaxApplied !== '') {
+      const max = Number(filtroProdFinalMaxApplied)
+      filtrados = filtrados.filter(f => f.produtividade_final <= max)
+    }
+
+    if (filtroMetaMinApplied !== '') {
+      const min = Number(filtroMetaMinApplied)
+      filtrados = filtrados.filter(f => f.percentual_atingimento >= min)
+    }
+
+    if (filtroMetaMaxApplied !== '') {
+      const max = Number(filtroMetaMaxApplied)
+      filtrados = filtrados.filter(f => f.percentual_atingimento <= max)
+    }
+
+    if (matriculaDebounced) {
+      const matricula = matriculaDebounced.toLowerCase()
+      filtrados = filtrados.filter(f =>
+        f.colaborador_matricula?.toLowerCase().includes(matricula)
+      )
+    }
+
+    setFechamentosFiltrados(filtrados)
+  }, [fechamentos, filtroColaborador, filtroFilial, buscaDebounced, matriculaDebounced, filtroVlrKgHsMinApplied, filtroVlrKgHsMaxApplied, filtroVlrVolHsMinApplied, filtroVlrVolHsMaxApplied, filtroVlrPltHsMinApplied, filtroVlrPltHsMaxApplied, filtroProdBrutaMinApplied, filtroProdBrutaMaxApplied, filtroProdFinalMinApplied, filtroProdFinalMaxApplied, filtroMetaMinApplied, filtroMetaMaxApplied])
+
+  useEffect(() => {
+    aplicarFiltros()
+  }, [aplicarFiltros])
 
   const carregarRegrasCalculo = async () => {
     try {
@@ -144,6 +333,77 @@ export default function ResultadoPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const carregarColaboradores = async () => {
+    const { data } = await supabase
+      .from('colaboradores')
+      .select('*')
+      .eq('ativo', true)
+      .order('nome')
+    
+    if (data) setColaboradores(data)
+  }
+
+  const carregarFiliais = async () => {
+    const { data } = await supabase
+      .from('filiais')
+      .select('*')
+      .eq('ativo', true)
+    
+    if (data) setFiliais(data)
+  }
+
+  const limparFiltros = () => {
+    setFiltroColaborador('todos')
+    setFiltroFilial('todas')
+    setFiltroBusca('')
+    setFiltroVlrKgHsMin('')
+    setFiltroVlrKgHsMax('')
+    setFiltroVlrVolHsMin('')
+    setFiltroVlrVolHsMax('')
+    setFiltroVlrPltHsMin('')
+    setFiltroVlrPltHsMax('')
+    setFiltroProdBrutaMin('')
+    setFiltroProdBrutaMax('')
+    setFiltroProdFinalMin('')
+    setFiltroProdFinalMax('')
+    setFiltroMetaMin('')
+    setFiltroMetaMax('')
+    setFiltroMatricula('')
+    setFiltroVlrKgHsMinApplied('')
+    setFiltroVlrKgHsMaxApplied('')
+    setFiltroVlrVolHsMinApplied('')
+    setFiltroVlrVolHsMaxApplied('')
+    setFiltroVlrPltHsMinApplied('')
+    setFiltroVlrPltHsMaxApplied('')
+    setFiltroProdBrutaMinApplied('')
+    setFiltroProdBrutaMaxApplied('')
+    setFiltroProdFinalMinApplied('')
+    setFiltroProdFinalMaxApplied('')
+    setFiltroMetaMinApplied('')
+    setFiltroMetaMaxApplied('')
+  }
+
+  const contarFiltrosAtivos = () => {
+    let count = 0
+    if (filtroColaborador !== 'todos') count++
+    if (filtroFilial !== 'todas') count++
+    if (filtroBusca) count++
+    if (filtroVlrKgHsMin) count++
+    if (filtroVlrKgHsMax) count++
+    if (filtroVlrVolHsMin) count++
+    if (filtroVlrVolHsMax) count++
+    if (filtroVlrPltHsMin) count++
+    if (filtroVlrPltHsMax) count++
+    if (filtroProdBrutaMin) count++
+    if (filtroProdBrutaMax) count++
+    if (filtroProdFinalMin) count++
+    if (filtroProdFinalMax) count++
+    if (filtroMetaMin) count++
+    if (filtroMetaMax) count++
+    if (filtroMatricula) count++
+    return count
   }
 
   const calcularFechamento = async () => {
@@ -356,41 +616,223 @@ export default function ResultadoPage() {
       </div>
 
       {/* Filtros */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Período</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Mês</Label>
-              <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o mês" />
-                </SelectTrigger>
-                <SelectContent>
-                  {meses.map(m => (
-                    <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      <FilterToggle
+        filtrosAtivos={contarFiltrosAtivos()}
+        onLimparFiltros={limparFiltros}
+      >
+          <div className="space-y-4">
+            {/* Linha 1 - Período */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Mês</Label>
+                <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {meses.map(m => (
+                      <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Ano</Label>
+                <Select value={String(anoSelecionado)} onValueChange={(v) => setAnoSelecionado(Number(v))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2024">2024</SelectItem>
+                    <SelectItem value="2025">2025</SelectItem>
+                    <SelectItem value="2026">2026</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Ano</Label>
-              <Select value={String(anoSelecionado)} onValueChange={(v) => setAnoSelecionado(Number(v))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="2024">2024</SelectItem>
-                  <SelectItem value="2025">2025</SelectItem>
-                  <SelectItem value="2026">2026</SelectItem>
-                </SelectContent>
-              </Select>
+
+            {/* Linha 2 - Colaborador/Filial/Busca */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label>Colaborador</Label>
+                <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    {colaboradores.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Filial</Label>
+                <Select 
+                  value={filtroFilial} 
+                  onValueChange={setFiltroFilial}
+                  disabled={usuarioLogado?.tipo === 'colaborador'}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {usuarioLogado?.tipo === 'admin' && (
+                      <SelectItem value="todas">Todas</SelectItem>
+                    )}
+                    {filiais.map(f => (
+                      <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {usuarioLogado?.tipo === 'colaborador' && (
+                  <p className="text-xs text-muted-foreground">
+                    Fixado para sua filial
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label>Busca</Label>
+                <Input
+                  placeholder="Buscar colaborador, filial..."
+                  value={filtroBusca}
+                  onChange={(e) => setFiltroBusca(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Matrícula</Label>
+                <Input
+                  placeholder="Filtrar por matrícula..."
+                  value={filtroMatricula}
+                  onChange={(e) => setFiltroMatricula(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Linha 3 - Valores */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Vlr Kg/Hs (R$)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroVlrKgHsMin}
+                    onChange={(e) => setFiltroVlrKgHsMin(e.target.value)}
+                    step="0.01"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroVlrKgHsMax}
+                    onChange={(e) => setFiltroVlrKgHsMax(e.target.value)}
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Vlr Vol/Hs (R$)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroVlrVolHsMin}
+                    onChange={(e) => setFiltroVlrVolHsMin(e.target.value)}
+                    step="0.01"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroVlrVolHsMax}
+                    onChange={(e) => setFiltroVlrVolHsMax(e.target.value)}
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Vlr Plt/Hs (R$)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroVlrPltHsMin}
+                    onChange={(e) => setFiltroVlrPltHsMin(e.target.value)}
+                    step="0.01"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroVlrPltHsMax}
+                    onChange={(e) => setFiltroVlrPltHsMax(e.target.value)}
+                    step="0.01"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Linha 4 - Produtividade e Meta */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Prod. Bruta (R$)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroProdBrutaMin}
+                    onChange={(e) => setFiltroProdBrutaMin(e.target.value)}
+                    step="0.01"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroProdBrutaMax}
+                    onChange={(e) => setFiltroProdBrutaMax(e.target.value)}
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Prod. Final (R$)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroProdFinalMin}
+                    onChange={(e) => setFiltroProdFinalMin(e.target.value)}
+                    step="0.01"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroProdFinalMax}
+                    onChange={(e) => setFiltroProdFinalMax(e.target.value)}
+                    step="0.01"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Meta (%)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Min"
+                    value={filtroMetaMin}
+                    onChange={(e) => setFiltroMetaMin(e.target.value)}
+                    step="1"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Max"
+                    value={filtroMetaMax}
+                    onChange={(e) => setFiltroMetaMax(e.target.value)}
+                    step="1"
+                  />
+                </div>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
+      </FilterToggle>
 
       {/* Tabela Fechamento */}
       <Card>
@@ -435,7 +877,7 @@ export default function ResultadoPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  fechamentos.map((f) => (
+                  fechamentosFiltrados.map((f) => (
                     <TableRow key={f.id}>
                       <TableCell className="font-medium">{f.colaborador_nome}</TableCell>
                       <TableCell>{f.colaborador_matricula}</TableCell>
@@ -492,14 +934,14 @@ export default function ResultadoPage() {
                       Carregando...
                     </TableCell>
                   </TableRow>
-                ) : fechamentos.length === 0 ? (
+                ) : fechamentosFiltrados.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                       Nenhum resultado disponível
                     </TableCell>
                   </TableRow>
                 ) : (
-                  fechamentos.map((f) => {
+                  fechamentosFiltrados.map((f) => {
                     const corProdutividade = obterCorProdutividade(f.produtividade_final, f.meta)
                     return (
                       <TableRow key={f.id}>

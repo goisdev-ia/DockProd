@@ -120,7 +120,7 @@ export default function LoginPage() {
         <div className="absolute inset-0 bg-black/40" />
       </div>
 
-      <Card className="relative z-10 w-full max-w-md bg-white/35 backdrop-blur-md border-white/30 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-600">
+      <Card className="relative z-10 w-full max-w-md bg-white/15 backdrop-blur-md border-white/15 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-600">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <Image
@@ -140,7 +140,7 @@ export default function LoginPage() {
         <form onSubmit={handleLogin}>
           <CardContent className="space-y-4">
             {erro && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+              <div className="p-3 text-sm text-red-200 bg-red-50 border border-red-600 rounded-md">
                 {erro}
               </div>
             )}
@@ -171,7 +171,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setMostrarSenha(!mostrarSenha)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-800 hover:text-gray-700"
                 >
                   {mostrarSenha ? (
                     <EyeOff className="w-4 h-4" />

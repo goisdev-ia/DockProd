@@ -70,6 +70,8 @@ interface FechamentoChartRow {
   valor_descontos: number
   erro_separacao_total: number
   erro_entregas_total: number
+  percentual_erros: number
+  percentual_descontos: number
 }
 
 interface ResumoColaboradorRow {
@@ -290,6 +292,8 @@ export default function DashboardPage() {
           valor_descontos,
           erro_separacao_total,
           erro_entregas_total,
+          percentual_erros,
+          percentual_descontos,
           percentual_atingimento,
           colaboradores (nome),
           filiais (nome)
@@ -332,6 +336,8 @@ export default function DashboardPage() {
         valor_descontos: Number(f.valor_descontos ?? 0),
         erro_separacao_total: Number(f.erro_separacao_total ?? 0),
         erro_entregas_total: Number(f.erro_entregas_total ?? 0),
+        percentual_erros: Number(f.percentual_erros ?? 0),
+        percentual_descontos: Number(f.percentual_descontos ?? 0),
       }))
       setFechamentoList(chartList)
 
@@ -499,6 +505,20 @@ export default function DashboardPage() {
     data_carga: format(new Date(r.data_carga + 'T12:00:00'), 'dd/MM', { locale: ptBR }),
   })), [evolucaoDataInterna])
   const pieData = useMemo(() => porFilialArrR$.map((f, i) => ({ name: f.nome, value: f.produtividade_final, fill: ['#166534', '#15803d', '#16a34a', '#22c55e', '#4ade80'][i % 5] })).filter((d) => d.value > 0), [porFilialArrR$])
+  const pieDataDescontos = useMemo(() => {
+    const porColab = fechamentoList.reduce((acc, f) => {
+      const nome = f.colaborador_nome || 'Sem nome'
+      if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
+      acc[nome].percentual += (f.percentual_erros ?? 0) + (f.percentual_descontos ?? 0)
+      return acc
+    }, {} as Record<string, { nome: string; percentual: number }>)
+    const cores = ['#b91c1c', '#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca', '#991b1b', '#7f1d1d']
+    return Object.values(porColab)
+      .filter((d) => d.percentual > 0)
+      .sort((a, b) => b.percentual - a.percentual)
+      .slice(0, 12)
+      .map((d, i) => ({ name: formatarNomeColaborador(d.nome), value: Math.round(d.percentual * 10) / 10, fill: cores[i % cores.length] }))
+  }, [fechamentoList])
   const top3Prod = useMemo(() => porColaboradorArrR$.slice(0, 3), [porColaboradorArrR$])
   const top3Kg = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.peso_liquido_total - a.peso_liquido_total).slice(0, 3), [porColaboradorArrTotais])
   const top3Vol = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.volume_total - a.volume_total).slice(0, 3), [porColaboradorArrTotais])
@@ -933,6 +953,39 @@ export default function DashboardPage() {
                     <LabelList dataKey="valor_descontos" position="top" formatter={(v: any) => formatarMoeda(Number(v))} style={{ fontSize: 10 }} />
                   </Bar>
                 </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>8. Descontos em % dos Colaboradores</CardTitle>
+            <CardDescription>Percentual de descontos (erros, faltas, atestados, advertência, suspensão, férias) por colaborador</CardDescription>
+          </CardHeader>
+          <CardContent className="h-80">
+            {!isPeriodoMensalOuMaior ? (
+              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Selecione período mensal ou maior</div>
+            ) : pieDataDescontos.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Nenhum desconto no período</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieDataDescontos}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    label={({ name, value }) => `${name}: ${value}%`}
+                  >
+                    {pieDataDescontos.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={pieDataDescontos[index].fill} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number | undefined) => (v != null ? `${Number(v).toFixed(1)}%` : '')} />
+                  <Legend />
+                </PieChart>
               </ResponsiveContainer>
             )}
           </CardContent>

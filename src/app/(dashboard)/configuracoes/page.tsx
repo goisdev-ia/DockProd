@@ -16,6 +16,7 @@ import { Edit, Save, Settings as SettingsIcon, Users, Shield, Globe, Mail, Datab
 import { toast } from 'sonner'
 import type { Usuario, TipoUsuario } from '@/types/database'
 import type { RegrasCalculo } from '@/lib/calculos'
+import { registrarLog } from '@/lib/logs'
 
 interface UsuarioExtendido extends Usuario {
   filial_nome?: string
@@ -55,6 +56,7 @@ export default function ConfiguracoesPage() {
   const [idUsuarioExcluir, setIdUsuarioExcluir] = useState<string | null>(null)
   const [confirmSalvarMetaOpen, setConfirmSalvarMetaOpen] = useState(false)
   const [confirmSalvarRegrasOpen, setConfirmSalvarRegrasOpen] = useState(false)
+  const [salvandoNovoUsuario, setSalvandoNovoUsuario] = useState(false)
 
   const supabase = createClient()
 
@@ -141,6 +143,7 @@ export default function ConfiguracoesPage() {
         const { error } = await supabase.from('configuracoes').insert({ chave: 'meta_colaborador', valor: { valor }, updated_at: new Date().toISOString() })
         if (error) throw error
       }
+      registrarLog(supabase, 'Alterou meta de produtividade')
       toast.success('Meta atualizada')
       setDialogMetaAberto(false)
     } catch (e) {
@@ -165,6 +168,7 @@ export default function ConfiguracoesPage() {
         const { error } = await supabase.from('configuracoes').update({ valor: row.valor, updated_at: row.updated_at }).eq('chave', row.chave)
         if (error) throw error
       }
+      registrarLog(supabase, 'Alterou regras de cálculo')
       setDialogRegrasAberto(false)
       toast.success('Regras salvas')
     } catch (e) {
@@ -184,6 +188,77 @@ export default function ConfiguracoesPage() {
     setFilialUsuario(usuario.id_filial || 'nenhuma')
     setAtivoUsuario(usuario.ativo)
     setDialogUsuarioAberto(true)
+  }
+
+  const abrirCadastroNovoUsuario = () => {
+    setUsuarioEditando(null)
+    setNomeUsuario('')
+    setEmailUsuario('')
+    setSenhaUsuario('')
+    setTipoUsuario('colaborador')
+    setFilialUsuario('nenhuma')
+    setAtivoUsuario(true)
+    setDialogUsuarioAberto(true)
+  }
+
+  const cadastrarNovoUsuario = async () => {
+    const nome = nomeUsuario.trim()
+    const email = emailUsuario.trim().toLowerCase()
+    const senha = senhaUsuario.trim()
+    if (!nome) {
+      toast.error('Nome é obrigatório')
+      return
+    }
+    if (!email) {
+      toast.error('Email é obrigatório')
+      return
+    }
+    if (!senha) {
+      toast.error('Senha é obrigatória')
+      return
+    }
+    if (senha.length < 6) {
+      toast.error('Senha deve ter no mínimo 6 caracteres')
+      return
+    }
+    setSalvandoNovoUsuario(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Sessão expirada. Faça login novamente.')
+        return
+      }
+      const res = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          nome,
+          email,
+          senha,
+          id_filial: filialUsuario === 'nenhuma' || !filialUsuario ? null : filialUsuario,
+          tipo: tipoUsuario,
+          ativo: ativoUsuario,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error || 'Erro ao cadastrar usuário')
+        return
+      }
+      registrarLog(supabase, 'Cadastrou novo usuário')
+      toast.success('Usuário cadastrado com sucesso')
+      setDialogUsuarioAberto(false)
+      carregarUsuarios()
+    } catch (e) {
+      console.error(e)
+      toast.error('Erro ao cadastrar usuário')
+    } finally {
+      setSalvandoNovoUsuario(false)
+    }
   }
 
   const salvarUsuario = async () => {
@@ -206,6 +281,7 @@ export default function ConfiguracoesPage() {
 
       if (error) throw error
 
+      registrarLog(supabase, 'Alterou dados de usuário')
       toast.success('Usuário atualizado com sucesso!')
       setDialogUsuarioAberto(false)
       carregarUsuarios()
@@ -229,6 +305,7 @@ export default function ConfiguracoesPage() {
         .eq('id', idUsuarioExcluir)
 
       if (error) throw error
+      registrarLog(supabase, 'Excluiu usuário')
       toast.success('Usuário excluído')
       carregarUsuarios()
       setIdUsuarioExcluir(null)
@@ -244,6 +321,8 @@ export default function ConfiguracoesPage() {
         return 'destructive'
       case 'colaborador':
         return 'default'
+      case 'gestor':
+        return 'outline'
       case 'novo':
         return 'secondary'
       default:
@@ -283,10 +362,18 @@ export default function ConfiguracoesPage() {
         <TabsContent value="usuarios">
           <Card>
             <CardHeader>
-              <CardTitle>Gerenciar Usuários</CardTitle>
-              <CardDescription>
-                {usuarios.length} usuário(s) cadastrado(s)
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Gerenciar Usuários</CardTitle>
+                  <CardDescription>
+                    {usuarios.length} usuário(s) cadastrado(s)
+                  </CardDescription>
+                </div>
+                <Button onClick={abrirCadastroNovoUsuario} className="bg-green-600 hover:bg-green-700">
+                  <Users className="w-4 h-4 mr-2" />
+                  Cadastrar novo usuário
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="border rounded-lg overflow-auto">
@@ -480,14 +567,14 @@ export default function ConfiguracoesPage() {
         </TabsContent>
       </Tabs>
 
-      {/* Dialog de Edição de Usuário */}
+      {/* Dialog de Edição / Cadastro de Usuário */}
       <Dialog open={dialogUsuarioAberto} onOpenChange={setDialogUsuarioAberto}>
         {dialogUsuarioAberto && (
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Editar Usuário</DialogTitle>
+            <DialogTitle>{usuarioEditando ? 'Editar Usuário' : 'Cadastrar novo usuário'}</DialogTitle>
             <DialogDescription>
-              Altere os dados e permissões do usuário
+              {usuarioEditando ? 'Altere os dados e permissões do usuário' : 'Preencha os dados. O usuário ficará ativo e poderá acessar o sistema.'}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -496,6 +583,7 @@ export default function ConfiguracoesPage() {
               <Input
                 value={nomeUsuario}
                 onChange={(e) => setNomeUsuario(e.target.value)}
+                placeholder="Nome completo"
               />
             </div>
             <div className="space-y-2">
@@ -504,10 +592,13 @@ export default function ConfiguracoesPage() {
                 type="email"
                 value={emailUsuario}
                 onChange={(e) => setEmailUsuario(e.target.value)}
+                placeholder="email@exemplo.com"
+                disabled={!!usuarioEditando}
               />
+              {usuarioEditando && <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui.</p>}
             </div>
             <div className="space-y-2">
-              <Label>Senha (deixe vazio para não alterar)</Label>
+              <Label>{usuarioEditando ? 'Senha (deixe vazio para não alterar)' : 'Senha (mín. 6 caracteres)'}</Label>
               <Input
                 type="password"
                 value={senhaUsuario}
@@ -523,7 +614,8 @@ export default function ConfiguracoesPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="novo">Novo</SelectItem>
-                  <SelectItem value="colaborador">Colaborador</SelectItem>
+                  <SelectItem value="colaborador">Colaborador (comum)</SelectItem>
+                  <SelectItem value="gestor">Gestor</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>
@@ -557,10 +649,17 @@ export default function ConfiguracoesPage() {
             <Button variant="outline" onClick={() => setDialogUsuarioAberto(false)}>
               Cancelar
             </Button>
-            <Button onClick={() => setConfirmSalvarUsuarioOpen(true)} className="bg-green-600 hover:bg-green-700">
-              <Save className="w-4 h-4 mr-2" />
-              Salvar
-            </Button>
+            {usuarioEditando ? (
+              <Button onClick={() => setConfirmSalvarUsuarioOpen(true)} className="bg-green-600 hover:bg-green-700">
+                <Save className="w-4 h-4 mr-2" />
+                Salvar
+              </Button>
+            ) : (
+              <Button onClick={cadastrarNovoUsuario} disabled={salvandoNovoUsuario} className="bg-green-600 hover:bg-green-700">
+                <Save className="w-4 h-4 mr-2" />
+                {salvandoNovoUsuario ? 'Cadastrando...' : 'Cadastrar'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
         )}

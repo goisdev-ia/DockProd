@@ -66,10 +66,19 @@ export async function updateSession(request: NextRequest) {
     }
 
     // Rotas administrativas - apenas para admin (cadastros liberado para admin e colaborador)
-    const adminRoutes = ['/configuracoes']
+    const adminRoutes = ['/configuracoes', '/logs']
     const isAdminRoute = adminRoutes.some(route => request.nextUrl.pathname.startsWith(route))
     
     if (isAdminRoute && usuario?.tipo !== 'admin') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
+
+    // Gestor só pode acessar Dashboard, Resultado e Relatórios
+    const gestorAllowedRoutes = ['/dashboard', '/resultado', '/relatorios']
+    const isGestorAllowedRoute = gestorAllowedRoutes.some(route => request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith(route + '/'))
+    if (usuario?.tipo === 'gestor' && !isGestorAllowedRoute) {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'
       return NextResponse.redirect(url)

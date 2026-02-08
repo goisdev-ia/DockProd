@@ -35,6 +35,7 @@ import {
   Sun,
   Moon,
   User,
+  ScrollText,
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -49,14 +50,15 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, permitido: ['colaborador', 'admin'] },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/upload', label: 'Upload', icon: Upload, permitido: ['colaborador', 'admin'] },
   { href: '/produtividade', label: 'Produtividade', icon: BarChart3, permitido: ['colaborador', 'admin'] },
   { href: '/descontos', label: 'Descontos', icon: Percent, permitido: ['colaborador', 'admin'] },
-  { href: '/resultado', label: 'Resultado', icon: Trophy, permitido: ['colaborador', 'admin'] },
-  { href: '/relatorios', label: 'Relatórios', icon: FileText, permitido: ['colaborador', 'admin'] },
+  { href: '/resultado', label: 'Resultado', icon: Trophy, permitido: ['colaborador', 'admin', 'gestor'] },
+  { href: '/relatorios', label: 'Relatórios', icon: FileText, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/cadastros', label: 'Cadastros', icon: Users, permitido: ['colaborador', 'admin'] },
   { href: '/configuracoes', label: 'Configurações', icon: Settings, permitido: ['admin'] },
+  { href: '/logs', label: 'Logs e Histórico', icon: ScrollText, permitido: ['admin'] },
 ]
 
 // Context para compartilhar estado da sidebar com o layout

@@ -22,6 +22,7 @@ import {
   type RegrasCalculo
 } from '@/lib/calculos'
 import { getDatasPorMesAno, toISODate } from '@/lib/dashboard-filters'
+import { registrarLog } from '@/lib/logs'
 import type { Fechamento } from '@/types/database'
 
 interface FechamentoExtendido extends Fechamento {
@@ -453,13 +454,22 @@ export default function ResultadoPage() {
 
         if (!dadosProducao || dadosProducao.length === 0) continue
 
-        // Totalizar dados
+        // Totalizar dados (agregar erros por id_carga_cliente para evitar duplicação)
         const pesoLiquidoTotal = dadosProducao.reduce((sum, d) => sum + (d.peso_liquido || 0), 0)
         const volumeTotal = dadosProducao.reduce((sum, d) => sum + (d.qtd_venda || 0), 0)
         const paletesTotal = dadosProducao.reduce((sum, d) => sum + (d.paletes || 0), 0)
         const tempoTotal = dadosProducao.reduce((sum, d) => sum + (d.tempo || 0), 0)
-        const erroSeparacaoTotal = dadosProducao.reduce((sum, d) => sum + (d.erro_separacao || 0), 0)
-        const erroEntregasTotal = dadosProducao.reduce((sum, d) => sum + (d.erro_entregas || 0), 0)
+        const errosPorCarga = new Map<string, { sep: number; ent: number }>()
+        for (const d of dadosProducao) {
+          const key = String(d.id_carga_cliente ?? '')
+          const cur = errosPorCarga.get(key) ?? { sep: 0, ent: 0 }
+          errosPorCarga.set(key, {
+            sep: Math.max(cur.sep, Number(d.erro_separacao ?? 0)),
+            ent: Math.max(cur.ent, Number(d.erro_entregas ?? 0))
+          })
+        }
+        const erroSeparacaoTotal = [...errosPorCarga.values()].reduce((s, c) => s + c.sep, 0)
+        const erroEntregasTotal = [...errosPorCarga.values()].reduce((s, c) => s + c.ent, 0)
 
         // Calcular métricas de produtividade
         const kgHs = tempoTotal > 0 ? pesoLiquidoTotal / tempoTotal : 0
@@ -559,6 +569,9 @@ export default function ResultadoPage() {
         fechamentosGravados += 1
       }
 
+      if (fechamentosGravados > 0) {
+        registrarLog(supabase, 'Calculou fechamento mensal')
+      }
       toast.success(
         fechamentosGravados > 0
           ? `Fechamento calculado: ${fechamentosGravados} colaborador(es) processado(s).`

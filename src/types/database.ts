@@ -1,4 +1,4 @@
-export type TipoUsuario = 'novo' | 'colaborador' | 'admin'
+export type TipoUsuario = 'novo' | 'colaborador' | 'admin' | 'gestor'
 
 export interface Filial {
   id: string

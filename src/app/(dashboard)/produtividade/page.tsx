@@ -20,12 +20,41 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Edit, Trash2, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Edit, Trash2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsUpDown, Columns3 } from 'lucide-react'
 import { FilterToggle } from '@/components/FilterToggle'
+import { registrarLog } from '@/lib/logs'
+
+const COLUNAS_PADRAO: (keyof DadoCarga)[] = [
+  'id_carga_cliente', 'carga', 'data_carga', 'filial', 'cliente', 'colaborador',
+  'hora_inicial', 'hora_final', 'tempo', 'erro_separacao', 'erro_entregas', 'observacao',
+  'peso_liquido_total', 'volume_total', 'paletes_total', 'kg_hs', 'vol_hs', 'plt_hs',
+]
+
+const COLUNAS_LABEL: Record<keyof DadoCarga, string> = {
+  id_carga_cliente: 'ID Carga',
+  carga: 'Carga',
+  data_carga: 'Data',
+  filial: 'Filial',
+  cliente: 'Cliente',
+  colaborador: 'Colaborador',
+  hora_inicial: 'Hora Inicial',
+  hora_final: 'Hora Final',
+  tempo: 'Tempo',
+  erro_separacao: 'Erros Sep.',
+  erro_entregas: 'Erros Ent.',
+  observacao: 'Observação',
+  peso_liquido_total: 'Peso (kg)',
+  volume_total: 'Volume',
+  paletes_total: 'Paletes',
+  kg_hs: 'Kg/Hs',
+  vol_hs: 'Vol/Hs',
+  plt_hs: 'Plt/Hs',
+}
 
 interface DadoCarga {
   id_carga_cliente: string
@@ -98,6 +127,8 @@ export default function ProdutividadePage() {
   const [confirmSalvarOpen, setConfirmSalvarOpen] = useState(false)
   const [confirmExcluirOpen, setConfirmExcluirOpen] = useState(false)
   const [idExcluir, setIdExcluir] = useState<string | null>(null)
+  const [ordenacao, setOrdenacao] = useState<{ coluna: keyof DadoCarga | null; direcao: 'asc' | 'desc' }>({ coluna: null, direcao: 'asc' })
+  const [colunasVisiveis, setColunasVisiveis] = useState<string[]>(COLUNAS_PADRAO as string[])
   const dadosRef = useRef<DadoCarga[]>([])
   dadosRef.current = dados
 
@@ -158,8 +189,11 @@ export default function ProdutividadePage() {
       })
       .eq('id_carga_cliente', idCargaCliente)
     if (error) console.error('Erro ao salvar linha:', error)
-    else if (tempoCalc != null && tempo !== row.tempo)
-      atualizarLinhaLocal(idCargaCliente, { tempo: tempoCalc, kg_hs: kgHs, vol_hs: volHs, plt_hs: pltHs })
+    else {
+      if (tempoCalc != null && tempo !== row.tempo)
+        atualizarLinhaLocal(idCargaCliente, { tempo: tempoCalc, kg_hs: kgHs, vol_hs: volHs, plt_hs: pltHs })
+      registrarLog(supabase, 'Editou produtividade (carga)')
+    }
   }
 
   useEffect(() => {
@@ -168,6 +202,38 @@ export default function ProdutividadePage() {
     carregarColaboradores()
     carregarFiliais()
   }, [])
+
+  useEffect(() => {
+    const carregarPreferencias = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from('usuario_preferencias')
+        .select('colunas_produtividade')
+        .eq('id_usuario', user.id)
+        .single()
+      if (data?.colunas_produtividade && Array.isArray(data.colunas_produtividade)) {
+        setColunasVisiveis(data.colunas_produtividade as string[])
+      }
+    }
+    carregarPreferencias()
+  }, [])
+
+  const salvarPreferenciasColunas = async (novasColunas: string[]) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    await supabase
+      .from('usuario_preferencias')
+      .upsert({ id_usuario: user.id, colunas_produtividade: novasColunas }, { onConflict: 'id_usuario' })
+  }
+
+  const toggleColunaVisivel = (coluna: string) => {
+    const proximo = colunasVisiveis.includes(coluna)
+      ? colunasVisiveis.filter((c) => c !== coluna)
+      : [...colunasVisiveis, coluna]
+    setColunasVisiveis(proximo)
+    salvarPreferenciasColunas(proximo)
+  }
 
   // Quando o usuário logado E as filiais estiverem carregados, fixar o filtro
   useEffect(() => {
@@ -579,6 +645,7 @@ export default function ProdutividadePage() {
         .eq('id_carga_cliente', idExcluir)
 
       if (error) throw error
+      registrarLog(supabase, 'Deletou carga da produtividade')
       carregarDados()
       setIdExcluir(null)
     } catch (error) {
@@ -587,9 +654,52 @@ export default function ProdutividadePage() {
     }
   }
 
-  const dadosPaginados = dadosFiltrados.slice(
+  const dadosOrdenados = (() => {
+    if (!ordenacao.coluna) return [...dadosFiltrados]
+    const sorted = [...dadosFiltrados]
+    const col = ordenacao.coluna
+    const dir = ordenacao.direcao === 'asc' ? 1 : -1
+    sorted.sort((a, b) => {
+      const va = a[col]
+      const vb = b[col]
+      if (va == null && vb == null) return 0
+      if (va == null) return dir
+      if (vb == null) return -dir
+      if (typeof va === 'number' && typeof vb === 'number') return dir * (va - vb)
+      if (typeof va === 'string' && typeof vb === 'string') return dir * va.localeCompare(vb)
+      return dir * String(va).localeCompare(String(vb))
+    })
+    return sorted
+  })()
+
+  const dadosPaginados = dadosOrdenados.slice(
     (paginaAtual - 1) * registrosPorPagina,
     paginaAtual * registrosPorPagina
+  )
+
+  const toggleOrdenacao = (coluna: keyof DadoCarga) => {
+    setOrdenacao(prev =>
+      prev.coluna === coluna
+        ? { coluna, direcao: prev.direcao === 'asc' ? 'desc' : 'asc' }
+        : { coluna, direcao: 'asc' }
+    )
+    setPaginaAtual(1)
+  }
+
+  const SortableHead = ({ coluna, children, className }: { coluna: keyof DadoCarga; children: React.ReactNode; className?: string }) => (
+    <TableHead
+      className={className}
+      onClick={() => toggleOrdenacao(coluna)}
+    >
+      <div className="flex items-center gap-1 cursor-pointer select-none hover:opacity-80">
+        {children}
+        {ordenacao.coluna === coluna ? (
+          ordenacao.direcao === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
+        ) : (
+          <ChevronsUpDown className="h-4 w-4 opacity-50" />
+        )}
+      </div>
+    </TableHead>
   )
 
   return (
@@ -825,179 +935,215 @@ export default function ProdutividadePage() {
       {/* Tabela */}
       <Card>
         <CardHeader>
-          <CardTitle>Dados de Produtividade</CardTitle>
-          <CardDescription>
-            {dadosFiltrados.length} carga(s) encontrada(s)
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Dados de Produtividade</CardTitle>
+              <CardDescription>
+                {dadosFiltrados.length} carga(s) encontrada(s)
+              </CardDescription>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  <Columns3 className="h-4 w-4" />
+                  Colunas
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
+                {COLUNAS_PADRAO.map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col}
+                    checked={colunasVisiveis.includes(col)}
+                    onCheckedChange={() => toggleColunaVisivel(col)}
+                  >
+                    {COLUNAS_LABEL[col]}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="border rounded-lg overflow-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>ID Carga</TableHead>
-                  <TableHead>Carga</TableHead>
-                  <TableHead>Data</TableHead>
-                  <TableHead>Filial</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Colaborador</TableHead>
-                  <TableHead>Hora Inicial</TableHead>
-                  <TableHead>Hora Final</TableHead>
-                  <TableHead className="text-right">Tempo</TableHead>
-                  <TableHead className="text-right">Erros Sep.</TableHead>
-                  <TableHead className="text-right">Erros Ent.</TableHead>
-                  <TableHead className="max-w-[120px]">Observação</TableHead>
-                  <TableHead className="text-right">Peso (kg)</TableHead>
-                  <TableHead className="text-right">Volume</TableHead>
-                  <TableHead className="text-right">Paletes</TableHead>
-                  <TableHead className="text-right">Kg/Hs</TableHead>
-                  <TableHead className="text-right">Vol/Hs</TableHead>
-                  <TableHead className="text-right">Plt/Hs</TableHead>
+                  {colunasVisiveis.map((col) => {
+                    const key = col as keyof DadoCarga
+                    const label = COLUNAS_LABEL[key]
+                    const isSortable = ['hora_inicial', 'hora_final', 'observacao'].includes(col)
+                      ? false
+                      : true
+                    return isSortable ? (
+                      <SortableHead key={col} coluna={key} className={['tempo', 'erro_separacao', 'erro_entregas', 'peso_liquido_total', 'volume_total', 'paletes_total', 'kg_hs', 'vol_hs', 'plt_hs'].includes(col) ? 'text-right' : undefined}>
+                        {label}
+                      </SortableHead>
+                    ) : (
+                      <TableHead key={col} className={col === 'observacao' ? 'max-w-[120px]' : undefined}>{label}</TableHead>
+                    )
+                  })}
                   <TableHead className="text-center">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={19} className="text-center py-8">
+                    <TableCell colSpan={colunasVisiveis.length + 1} className="text-center py-8">
                       Carregando...
                     </TableCell>
                   </TableRow>
                 ) : dadosPaginados.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={19} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={colunasVisiveis.length + 1} className="text-center py-8 text-muted-foreground">
                       Nenhum dado encontrado
                     </TableCell>
                   </TableRow>
                 ) : (
                   dadosPaginados.map((dado) => (
                     <TableRow key={dado.id_carga_cliente}>
-                      <TableCell className="font-mono text-xs">{dado.id_carga_cliente}</TableCell>
-                      <TableCell className="font-medium">{dado.carga}</TableCell>
-                      <TableCell>{new Date(dado.data_carga).toLocaleDateString('pt-BR')}</TableCell>
-                      <TableCell className="text-xs">{dado.filial}</TableCell>
-                      <TableCell className="text-xs max-w-xs truncate">{dado.cliente}</TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm" className="gap-1 min-w-[120px]">
-                              {dado.colaborador || 'Não atribuído'}
-                              <ChevronDown className="w-3 h-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => atribuirColaborador(dado, null)}>
-                              Não atribuído
-                            </DropdownMenuItem>
-                            {colaboradores.map(c => (
-                              <DropdownMenuItem
-                                key={c.id}
-                                onClick={() => atribuirColaborador(dado, c.nome)}
-                              >
-                                {c.nome}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                      <TableCell className="p-1">
-                        <Input
-                          type="time"
-                          className="h-8 w-[100px] text-xs"
-                          value={dado.hora_inicial ?? ''}
-                          onChange={(e) => {
-                            const v = e.target.value || null
-                            atualizarLinhaLocal(dado.id_carga_cliente, { hora_inicial: v })
-                          }}
-                          onBlur={() => persistirLinha(dado.id_carga_cliente)}
-                        />
-                      </TableCell>
-                      <TableCell className="p-1">
-                        <Input
-                          type="time"
-                          className="h-8 w-[100px] text-xs"
-                          value={dado.hora_final ?? ''}
-                          onChange={(e) => {
-                            const v = e.target.value || null
-                            atualizarLinhaLocal(dado.id_carga_cliente, { hora_final: v })
-                          }}
-                          onBlur={() => persistirLinha(dado.id_carga_cliente)}
-                        />
-                      </TableCell>
-                      <TableCell className="text-right p-1">
-                        <Input
-                          readOnly
-                          className="h-8 w-14 text-xs text-right bg-muted border-muted"
-                          placeholder="-"
-                          value={
-                            (() => {
-                              const t = calcularTempo(dado.hora_inicial, dado.hora_final)
-                              return t != null ? t.toFixed(1) : ''
-                            })()
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="p-1">
-                        <Input
-                          type="number"
-                          min={0}
-                          className="h-8 w-14 text-right text-xs"
-                          value={dado.erro_separacao}
-                          onChange={(e) =>
-                            atualizarLinhaLocal(dado.id_carga_cliente, {
-                              erro_separacao: Number(e.target.value) || 0
-                            })
-                          }
-                          onBlur={() => persistirLinha(dado.id_carga_cliente)}
-                        />
-                      </TableCell>
-                      <TableCell className="p-1">
-                        <Input
-                          type="number"
-                          min={0}
-                          className="h-8 w-14 text-right text-xs"
-                          value={dado.erro_entregas}
-                          onChange={(e) =>
-                            atualizarLinhaLocal(dado.id_carga_cliente, {
-                              erro_entregas: Number(e.target.value) || 0
-                            })
-                          }
-                          onBlur={() => persistirLinha(dado.id_carga_cliente)}
-                        />
-                      </TableCell>
-                      <TableCell className="p-1 max-w-[140px]">
-                        <Input
-                          className="h-8 text-xs uppercase"
-                          value={dado.observacao ?? ''}
-                          onChange={(e) =>
-                            atualizarLinhaLocal(dado.id_carga_cliente, {
-                              observacao: e.target.value.toUpperCase() || null
-                            })
-                          }
-                          onBlur={() => persistirLinha(dado.id_carga_cliente)}
-                          placeholder="Observação"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">{dado.peso_liquido_total.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">{dado.volume_total.toFixed(0)}</TableCell>
-                      <TableCell className="text-right">{dado.paletes_total.toFixed(2)}</TableCell>
-                      <TableCell className="text-right">{dado.kg_hs?.toFixed(2) || '-'}</TableCell>
-                      <TableCell className="text-right">{dado.vol_hs?.toFixed(2) || '-'}</TableCell>
-                      <TableCell className="text-right">{dado.plt_hs?.toFixed(2) || '-'}</TableCell>
+                      {colunasVisiveis.map((col) => {
+                        const key = col as keyof DadoCarga
+                        const val = dado[key]
+                        if (key === 'colaborador') {
+                          return (
+                            <TableCell key={col}>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="outline" size="sm" className="gap-1 min-w-[120px]">
+                                    {dado.colaborador || 'Não atribuído'}
+                                    <ChevronDown className="w-3 h-3" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start">
+                                  <DropdownMenuItem onClick={() => atribuirColaborador(dado, null)}>
+                                    Não atribuído
+                                  </DropdownMenuItem>
+                                  {colaboradores.map(c => (
+                                    <DropdownMenuItem
+                                      key={c.id}
+                                      onClick={() => atribuirColaborador(dado, c.nome)}
+                                    >
+                                      {c.nome}
+                                    </DropdownMenuItem>
+                                  ))}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          )
+                        }
+                        if (key === 'hora_inicial') {
+                          return (
+                            <TableCell key={col} className="p-1">
+                              <Input
+                                type="time"
+                                className="h-8 w-[100px] text-xs"
+                                value={dado.hora_inicial ?? ''}
+                                onChange={(e) => {
+                                  const v = e.target.value || null
+                                  atualizarLinhaLocal(dado.id_carga_cliente, { hora_inicial: v })
+                                }}
+                                onBlur={() => persistirLinha(dado.id_carga_cliente)}
+                              />
+                            </TableCell>
+                          )
+                        }
+                        if (key === 'hora_final') {
+                          return (
+                            <TableCell key={col} className="p-1">
+                              <Input
+                                type="time"
+                                className="h-8 w-[100px] text-xs"
+                                value={dado.hora_final ?? ''}
+                                onChange={(e) => {
+                                  const v = e.target.value || null
+                                  atualizarLinhaLocal(dado.id_carga_cliente, { hora_final: v })
+                                }}
+                                onBlur={() => persistirLinha(dado.id_carga_cliente)}
+                              />
+                            </TableCell>
+                          )
+                        }
+                        if (key === 'tempo') {
+                          const t = calcularTempo(dado.hora_inicial, dado.hora_final)
+                          return (
+                            <TableCell key={col} className="text-right p-1">
+                              <Input
+                                readOnly
+                                className="h-8 w-14 text-xs text-right bg-muted border-muted"
+                                placeholder="-"
+                                value={t != null ? t.toFixed(1) : ''}
+                              />
+                            </TableCell>
+                          )
+                        }
+                        if (key === 'erro_separacao') {
+                          return (
+                            <TableCell key={col} className="p-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                className="h-8 w-14 text-right text-xs"
+                                value={dado.erro_separacao}
+                                onChange={(e) =>
+                                  atualizarLinhaLocal(dado.id_carga_cliente, {
+                                    erro_separacao: Number(e.target.value) || 0
+                                  })
+                                }
+                                onBlur={() => persistirLinha(dado.id_carga_cliente)}
+                              />
+                            </TableCell>
+                          )
+                        }
+                        if (key === 'erro_entregas') {
+                          return (
+                            <TableCell key={col} className="p-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                className="h-8 w-14 text-right text-xs"
+                                value={dado.erro_entregas}
+                                onChange={(e) =>
+                                  atualizarLinhaLocal(dado.id_carga_cliente, {
+                                    erro_entregas: Number(e.target.value) || 0
+                                  })
+                                }
+                                onBlur={() => persistirLinha(dado.id_carga_cliente)}
+                              />
+                            </TableCell>
+                          )
+                        }
+                        if (key === 'observacao') {
+                          return (
+                            <TableCell key={col} className="p-1 max-w-[140px]">
+                              <Input
+                                className="h-8 text-xs uppercase"
+                                value={dado.observacao ?? ''}
+                                onChange={(e) =>
+                                  atualizarLinhaLocal(dado.id_carga_cliente, {
+                                    observacao: e.target.value.toUpperCase() || null
+                                  })
+                                }
+                                onBlur={() => persistirLinha(dado.id_carga_cliente)}
+                                placeholder="Observação"
+                              />
+                            </TableCell>
+                          )
+                        }
+                        const isRight = ['peso_liquido_total', 'volume_total', 'paletes_total', 'kg_hs', 'vol_hs', 'plt_hs', 'tempo', 'erro_separacao', 'erro_entregas'].includes(col)
+                        const cn = key === 'id_carga_cliente' ? 'font-mono text-xs' : key === 'carga' ? 'font-medium' : key === 'filial' || key === 'cliente' ? 'text-xs max-w-xs truncate' : isRight ? 'text-right' : ''
+                        const display = key === 'data_carga' && val ? new Date(String(val)).toLocaleDateString('pt-BR') : typeof val === 'number' && val != null ? (key === 'peso_liquido_total' || key === 'paletes_total' ? Number(val).toFixed(2) : key === 'volume_total' ? Number(val).toFixed(0) : key === 'kg_hs' || key === 'vol_hs' || key === 'plt_hs' ? (Number(val).toFixed(2) || '-') : String(val)) : val != null ? String(val) : '-'
+                        return (
+                          <TableCell key={col} className={cn}>
+                            {display}
+                          </TableCell>
+                        )
+                      })}
                       <TableCell>
                         <div className="flex justify-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => abrirEdicao(dado)}
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => abrirEdicao(dado)}>
                             <Edit className="w-4 h-4" />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => abrirConfirmExcluir(dado.id_carga_cliente)}
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => abrirConfirmExcluir(dado.id_carga_cliente)}>
                             <Trash2 className="w-4 h-4 text-red-600" />
                           </Button>
                         </div>

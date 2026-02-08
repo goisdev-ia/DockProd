@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, History } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { registrarLog } from '@/lib/logs'
 
 // Helper: retorna o primeiro valor não-undefined ao tentar cada chave (evita encoding quebrado)
 function getCell(row: Record<string, unknown>, keys: string[]): unknown {
@@ -107,6 +108,16 @@ const CHAVES_INSERT: (keyof DadoProcessado)[] = [
   'rota', 'rede', 'cliente', 'cidade_cliente', 'uf', 'cod_cliente', 'erro_separacao', 'erro_entregas', 'mes',
 ]
 
+interface UploadHistoricoRow {
+  id: string
+  created_at: string
+  nome_arquivo: string
+  linhas_processadas: number
+  menor_carga: string | null
+  maior_carga: string | null
+  usuarios: { nome: string; email: string } | null
+}
+
 export default function UploadPage() {
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [processando, setProcessando] = useState(false)
@@ -116,8 +127,30 @@ export default function UploadPage() {
   const [sucesso, setSucesso] = useState(false)
   const [totalRegistrosSalvos, setTotalRegistrosSalvos] = useState(0)
   const [erro, setErro] = useState('')
+  const [historico, setHistorico] = useState<UploadHistoricoRow[]>([])
+  const [historicoLoading, setHistoricoLoading] = useState(false)
 
   const supabase = createClient()
+
+  const carregarHistorico = async () => {
+    setHistoricoLoading(true)
+    try {
+      const { data } = await supabase
+        .from('upload_historico')
+        .select('id, created_at, nome_arquivo, linhas_processadas, menor_carga, maior_carga, usuarios(nome, email)')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      setHistorico((data ?? []) as UploadHistoricoRow[])
+    } catch {
+      setHistorico([])
+    } finally {
+      setHistoricoLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    carregarHistorico()
+  }, [])
 
   const processarArquivo = async (file: File) => {
     setErro('')
@@ -258,11 +291,38 @@ export default function UploadPage() {
 
       if (error) throw error
 
+      const cargas = dadosProcessados.map((d) => d.carga).filter(Boolean) as string[]
+      let menor_carga: string | null = null
+      let maior_carga: string | null = null
+      if (cargas.length > 0) {
+        const sorted = [...cargas].sort((a, b) => {
+          const na = Number(a)
+          const nb = Number(b)
+          if (!isNaN(na) && !isNaN(nb)) return na - nb
+          return String(a).localeCompare(String(b))
+        })
+        menor_carga = sorted[0]
+        maior_carga = sorted[sorted.length - 1]
+      }
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        await supabase.from('upload_historico').insert({
+          nome_arquivo: arquivo?.name ?? 'arquivo.xlsx',
+          linhas_processadas: payload.length,
+          id_usuario: user.id,
+          menor_carga,
+          maior_carga,
+        })
+        registrarLog(supabase, 'Fez upload de dados de produtividade')
+      }
+
       setTotalRegistrosSalvos(payload.length)
       setSucesso(true)
       setPreview(false)
       setDadosProcessados([])
       setArquivo(null)
+      carregarHistorico()
       const input = document.getElementById('arquivo') as HTMLInputElement
       if (input) input.value = ''
     } catch (error: unknown) {
@@ -433,6 +493,58 @@ export default function UploadPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Histórico de Uploads
+          </CardTitle>
+          <CardDescription>
+            Últimos imports realizados (data, arquivo, linhas, usuário, menor e maior carga)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {historicoLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : historico.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">Nenhum upload registrado ainda.</p>
+          ) : (
+            <div className="border rounded-lg overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Data e hora</TableHead>
+                    <TableHead>Nome do arquivo</TableHead>
+                    <TableHead className="text-right">Linhas</TableHead>
+                    <TableHead>Usuário</TableHead>
+                    <TableHead>Menor carga</TableHead>
+                    <TableHead>Maior carga</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {historico.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        {new Date(row.created_at).toLocaleString('pt-BR')}
+                      </TableCell>
+                      <TableCell className="font-medium">{row.nome_arquivo}</TableCell>
+                      <TableCell className="text-right">{row.linhas_processadas}</TableCell>
+                      <TableCell className="text-sm">
+                        {row.usuarios?.nome ?? row.usuarios?.email ?? '—'}
+                      </TableCell>
+                      <TableCell>{row.menor_carga ?? '—'}</TableCell>
+                      <TableCell>{row.maior_carga ?? '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

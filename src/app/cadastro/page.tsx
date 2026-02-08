@@ -108,7 +108,7 @@ export default function CadastroPage() {
         <div className="absolute inset-0 bg-black/40" />
       </div>
 
-      <Card className="relative z-10 w-full max-w-md bg-white/35 backdrop-blur-md border-white/30 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-600">
+      <Card className="relative z-10 w-full max-w-md bg-white/15 backdrop-blur-md border-white/15 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-600">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <Image
@@ -130,12 +130,12 @@ export default function CadastroPage() {
         <form onSubmit={handleCadastro}>
           <CardContent className="space-y-4">
             {erro && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+              <div className="p-3 text-sm text-red-200 bg-red-50 border border-red-600 rounded-md">
                 {erro}
               </div>
             )}
             {sucesso && (
-              <div className="p-3 text-sm text-green-600 bg-green-50 border border-green-200 rounded-md">
+              <div className="p-3 text-sm text-green-800 bg-green-50 border border-green-200 rounded-md">
                 Conta criada com sucesso! Aguarde aprovação do administrador.
               </div>
             )}

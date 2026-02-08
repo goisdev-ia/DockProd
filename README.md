@@ -18,6 +18,7 @@
 - 8 cards de KPIs principais
 - Filtros avançados (filial, período, colaborador)
 - Visualização de métricas em tempo real
+- Gráficos interativos com Recharts
 
 ### ✅ Upload de Dados
 - Processamento de arquivos Excel (.xlsx)
@@ -187,14 +188,13 @@ produtividade/
 
 ## 📝 Próximos Passos (Melhorias Futuras)
 
-1. Implementar gráficos no Dashboard (Recharts)
-2. Completar geração de relatórios (PDF, XLSX)
-3. Integração com WhatsApp
-4. Sincronização com Google Sheets
-5. Editor visual de regras de cálculo
-6. Notificações por email
-7. Histórico de alterações
-8. Backup automático
+1. Completar geração de relatórios (PDF, XLSX)
+2. Integração com WhatsApp
+3. Sincronização com Google Sheets
+4. Editor visual de regras de cálculo
+5. Notificações por email
+6. Histórico de alterações
+7. Backup automático
 
 ## 🚀 Como Usar
 

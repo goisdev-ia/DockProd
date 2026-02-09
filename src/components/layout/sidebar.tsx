@@ -4,7 +4,7 @@ import { useState, useEffect, createContext, useContext } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import {
   Tooltip,
@@ -57,6 +57,7 @@ const navItems: NavItem[] = [
   { href: '/resultado', label: 'Resultado', icon: Trophy, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/relatorios', label: 'Relatórios', icon: FileText, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/cadastros', label: 'Cadastros', icon: Users, permitido: ['colaborador', 'admin'] },
+  { href: '/perfil', label: 'Perfil', icon: User, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/configuracoes', label: 'Configurações', icon: Settings, permitido: ['admin'] },
   { href: '/logs', label: 'Logs e Histórico', icon: ScrollText, permitido: ['admin'] },
 ]
@@ -119,6 +120,7 @@ function SidebarContent({
   nomeUsuario,
   tipoUsuario,
   iniciaisUsuario,
+  avatarUrl,
   navItemsFiltrados,
   pathname,
   onLogout,
@@ -130,6 +132,7 @@ function SidebarContent({
   nomeUsuario: string
   tipoUsuario: TipoUsuario
   iniciaisUsuario: string
+  avatarUrl: string | null
   navItemsFiltrados: NavItem[]
   pathname: string
   onLogout: () => void
@@ -225,6 +228,7 @@ function SidebarContent({
           !isExpanded && 'justify-center'
         )}>
           <Avatar className="h-9 w-9 shrink-0">
+            {avatarUrl && <AvatarImage src={avatarUrl} alt={nomeUsuario} />}
             <AvatarFallback className="bg-green-600 text-white text-xs font-bold">
               {iniciaisUsuario}
             </AvatarFallback>
@@ -274,6 +278,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
   const [nomeUsuario, setNomeUsuario] = useState('')
   const [tipoUsuario, setTipoUsuario] = useState<TipoUsuario>('novo')
   const [iniciaisUsuario, setIniciaisUsuario] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [tema, setTema] = useState('light')
   const router = useRouter()
   const pathname = usePathname()
@@ -285,13 +290,14 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
       if (user) {
         const { data: usuario } = await supabase
           .from('usuarios')
-          .select('nome, tipo')
+          .select('nome, tipo, avatar_url')
           .eq('id', user.id)
           .single()
 
         if (usuario) {
           setNomeUsuario(usuario.nome)
           setTipoUsuario(usuario.tipo as TipoUsuario)
+          setAvatarUrl(usuario.avatar_url || null)
           const palavras = usuario.nome.split(' ')
           const iniciais = palavras.length > 1
             ? `${palavras[0][0]}${palavras[palavras.length - 1][0]}`
@@ -339,6 +345,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
     nomeUsuario,
     tipoUsuario,
     iniciaisUsuario,
+    avatarUrl,
     navItemsFiltrados,
     pathname,
     onLogout: handleLogout,
@@ -412,6 +419,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
                 <span className="font-bold text-sidebar-foreground">PickProd</span>
               </Link>
               <Avatar className="h-8 w-8">
+                {avatarUrl && <AvatarImage src={avatarUrl} alt={nomeUsuario} />}
                 <AvatarFallback className="bg-green-600 text-white text-xs font-bold">
                   {iniciaisUsuario}
                 </AvatarFallback>

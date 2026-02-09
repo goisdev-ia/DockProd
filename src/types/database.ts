@@ -28,6 +28,7 @@ export interface Usuario {
   id_filial: string | null
   tipo: TipoUsuario
   ativo: boolean
+  avatar_url?: string | null
   created_at: string
   updated_at: string
 }

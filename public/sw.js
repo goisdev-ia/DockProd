@@ -1,16 +1,20 @@
 /* PickProd PWA Service Worker - cache estático, rede para API */
-const CACHE_NAME = 'pickprod-v1';
+const CACHE_NAME = 'pickprod-v2';
 const STATIC_ASSETS = [
   '/',
-  '/manifest.webmanifest',
+  '/manifest.json',
   '/backgroundpickprod2.png',
-  '/pickprodlogo.png'
+  '/pickprodlogo.png',
+  '/AppImages/android/android-launchericon-192-192.png',
+  '/AppImages/android/android-launchericon-512-512.png',
+  '/AppImages/ios/180.png',
+  '/AppImages/ios/512.png'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch(() => {});
+      return cache.addAll(STATIC_ASSETS).catch(() => { });
     })
   );
   self.skipWaiting();

@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ScrollText, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ScrollText, Loader2, ChevronLeft, ChevronRight, Filter } from 'lucide-react'
 
 const PAGE_SIZE = 50
 
@@ -16,6 +16,7 @@ interface LogRow {
   created_at: string
   nome_usuario: string | null
   filial_nome: string | null
+  id_carga_cliente: string | null
   acao: string
 }
 
@@ -27,6 +28,10 @@ export default function LogsPage() {
   const [filtroDataInicio, setFiltroDataInicio] = useState('')
   const [filtroDataFim, setFiltroDataFim] = useState('')
   const [filtroAcao, setFiltroAcao] = useState('')
+  const [filtroUsuario, setFiltroUsuario] = useState('')
+  const [filtroIdCargaCliente, setFiltroIdCargaCliente] = useState('')
+  const [filtroFilial, setFiltroFilial] = useState('')
+  const [filtrosVisiveis, setFiltrosVisiveis] = useState(false)
 
   const supabase = createClient()
 
@@ -35,7 +40,7 @@ export default function LogsPage() {
     try {
       let query = supabase
         .from('logs_acao')
-        .select('id, created_at, nome_usuario, filial_nome, acao', { count: 'exact' })
+        .select('id, created_at, nome_usuario, filial_nome, id_carga_cliente, acao', { count: 'exact' })
         .order('created_at', { ascending: false })
 
       if (filtroDataInicio) {
@@ -46,6 +51,15 @@ export default function LogsPage() {
       }
       if (filtroAcao.trim()) {
         query = query.ilike('acao', `%${filtroAcao.trim()}%`)
+      }
+      if (filtroUsuario.trim()) {
+        query = query.ilike('nome_usuario', `%${filtroUsuario.trim()}%`)
+      }
+      if (filtroIdCargaCliente.trim()) {
+        query = query.ilike('id_carga_cliente', `%${filtroIdCargaCliente.trim()}%`)
+      }
+      if (filtroFilial.trim()) {
+        query = query.ilike('filial_nome', `%${filtroFilial.trim()}%`)
       }
 
       const from = (paginaAtual - 1) * PAGE_SIZE
@@ -69,54 +83,92 @@ export default function LogsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <ScrollText className="h-8 w-8" />
-          Logs e Histórico
-        </h1>
-        <p className="text-muted-foreground">
-          Registro de ações realizadas no sistema (apenas admin)
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+              <ScrollText className="h-8 w-8" />
+              Logs e Histórico
+            </h1>
+            <p className="text-muted-foreground">
+              Registro de ações realizadas no sistema (apenas admin)
+            </p>
+          </div>
+          <Button
+            variant={filtrosVisiveis ? "default" : "outline"}
+            onClick={() => setFiltrosVisiveis(!filtrosVisiveis)}
+            className="flex items-center gap-2"
+          >
+            <Filter className="h-4 w-4" />
+            {filtrosVisiveis ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+          </Button>
+        </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-          <CardDescription>Filtrar por período ou texto da ação</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label>Data início</Label>
-              <Input
-                type="date"
-                value={filtroDataInicio}
-                onChange={(e) => setFiltroDataInicio(e.target.value)}
-              />
+      {filtrosVisiveis && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Filtros</CardTitle>
+            <CardDescription>Filtrar por período ou texto da ação</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Data início</Label>
+                <Input
+                  type="date"
+                  value={filtroDataInicio}
+                  onChange={(e) => setFiltroDataInicio(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Data fim</Label>
+                <Input
+                  type="date"
+                  value={filtroDataFim}
+                  onChange={(e) => setFiltroDataFim(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Ação (contém)</Label>
+                <Input
+                  placeholder="Ex: produtividade, upload..."
+                  value={filtroAcao}
+                  onChange={(e) => setFiltroAcao(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Usuário</Label>
+                <Input
+                  placeholder="Nome do usuário"
+                  value={filtroUsuario}
+                  onChange={(e) => setFiltroUsuario(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>ID Carga Cliente</Label>
+                <Input
+                  placeholder="Ex: 12345"
+                  value={filtroIdCargaCliente}
+                  onChange={(e) => setFiltroIdCargaCliente(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Filial</Label>
+                <Input
+                  placeholder="Nome da filial"
+                  value={filtroFilial}
+                  onChange={(e) => setFiltroFilial(e.target.value)}
+                />
+              </div>
+              <div className="flex items-end col-span-1 md:col-span-3">
+                <Button onClick={() => { setPaginaAtual(1); carregarLogs(); }} className="w-full md:w-auto">
+                  Aplicar Filtros
+                </Button>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Data fim</Label>
-              <Input
-                type="date"
-                value={filtroDataFim}
-                onChange={(e) => setFiltroDataFim(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Ação (contém)</Label>
-              <Input
-                placeholder="Ex: produtividade, upload..."
-                value={filtroAcao}
-                onChange={(e) => setFiltroAcao(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button onClick={() => { setPaginaAtual(1); carregarLogs(); }}>
-                Aplicar
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -133,19 +185,20 @@ export default function LogsPage() {
                   <TableHead>Data e hora</TableHead>
                   <TableHead>Usuário</TableHead>
                   <TableHead>Filial</TableHead>
+                  <TableHead>ID Carga Cliente</TableHead>
                   <TableHead>Ação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8">
+                    <TableCell colSpan={5} className="text-center py-8">
                       <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
                     </TableCell>
                   </TableRow>
                 ) : logs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                       Nenhum log encontrado
                     </TableCell>
                   </TableRow>
@@ -157,6 +210,7 @@ export default function LogsPage() {
                       </TableCell>
                       <TableCell>{row.nome_usuario ?? '—'}</TableCell>
                       <TableCell>{row.filial_nome ?? '—'}</TableCell>
+                      <TableCell className="font-mono text-xs">{row.id_carga_cliente ?? '—'}</TableCell>
                       <TableCell>{row.acao}</TableCell>
                     </TableRow>
                   ))

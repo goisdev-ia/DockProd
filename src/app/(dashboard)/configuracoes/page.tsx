@@ -12,11 +12,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Edit, Save, Settings as SettingsIcon, Users, Shield, Globe, Mail, Database, MessageSquare, FileText } from 'lucide-react'
+import { Edit, Save, Settings as SettingsIcon, Users, Shield, Globe, Mail, Database, MessageSquare, FileText, Trash2, User, Upload as UploadIcon, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { Usuario, TipoUsuario } from '@/types/database'
 import type { RegrasCalculo } from '@/lib/calculos'
 import { registrarLog } from '@/lib/logs'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 
 interface UsuarioExtendido extends Usuario {
   filial_nome?: string
@@ -31,9 +32,9 @@ interface RegraTier {
 
 export default function ConfiguracoesPage() {
   const [usuarios, setUsuarios] = useState<UsuarioExtendido[]>([])
-  const [filiais, setFiliais] = useState<{ id: string; nome: string; [key: string]: unknown }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string;[key: string]: unknown }[]>([])
   const [loading, setLoading] = useState(true)
-  
+
   // Dialog de edição de usuário
   const [dialogUsuarioAberto, setDialogUsuarioAberto] = useState(false)
   const [usuarioEditando, setUsuarioEditando] = useState<UsuarioExtendido | null>(null)
@@ -57,12 +58,15 @@ export default function ConfiguracoesPage() {
   const [confirmSalvarMetaOpen, setConfirmSalvarMetaOpen] = useState(false)
   const [confirmSalvarRegrasOpen, setConfirmSalvarRegrasOpen] = useState(false)
   const [salvandoNovoUsuario, setSalvandoNovoUsuario] = useState(false)
+  const [perfilUsuario, setPerfilUsuario] = useState<{ nome: string; email: string; avatar_url: string | null } | null>(null)
+  const [uploadandoAvatar, setUploadandoAvatar] = useState(false)
 
   const supabase = createClient()
 
   useEffect(() => {
     carregarUsuarios()
     carregarFiliais()
+    carregarPerfilUsuario()
   }, [])
 
   const carregarUsuarios = async () => {
@@ -96,6 +100,97 @@ export default function ConfiguracoesPage() {
       .select('*')
       .eq('ativo', true)
     if (data) setFiliais(data)
+  }
+
+  const carregarPerfilUsuario = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data } = await supabase
+        .from('usuarios')
+        .select('nome, email, avatar_url')
+        .eq('id', user.id)
+        .single()
+
+      if (data) {
+        setPerfilUsuario(data)
+      }
+    } catch (error) {
+      console.error('Erro ao carregar perfil:', error)
+    }
+  }
+
+  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validar arquivo
+    const maxSize = 2 * 1024 * 1024 // 2MB
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+
+    if (file.size > maxSize) {
+      toast.error('Arquivo muito grande. Máximo 2MB.')
+      return
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      toast.error('Formato não suportado. Use JPG, JPEG, PNG ou WEBP.')
+      return
+    }
+
+    setUploadandoAvatar(true)
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('Usuário não autenticado')
+        return
+      }
+
+      // Deletar avatar antigo se existir
+      const { data: existingFiles } = await supabase.storage
+        .from('avatars')
+        .list(user.id)
+
+      if (existingFiles && existingFiles.length > 0) {
+        const filesToDelete = existingFiles.map(f => `${user.id}/${f.name}`)
+        await supabase.storage.from('avatars').remove(filesToDelete)
+      }
+
+      // Upload novo avatar
+      const fileExt = file.name.split('.').pop()
+      const filePath = `${user.id}/avatar.${fileExt}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      // Obter URL pública
+      const { data: urlData } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath)
+
+      // Atualizar banco de dados
+      const { error: updateError } = await supabase
+        .from('usuarios')
+        .update({ avatar_url: urlData.publicUrl })
+        .eq('id', user.id)
+
+      if (updateError) throw updateError
+
+      toast.success('Foto de perfil atualizada!')
+      await carregarPerfilUsuario()
+      registrarLog(supabase, 'Atualizou foto de perfil')
+
+    } catch (error) {
+      console.error('Erro ao fazer upload:', error)
+      toast.error('Erro ao atualizar foto de perfil')
+    } finally {
+      setUploadandoAvatar(false)
+    }
   }
 
   const carregarConfiguracoesRegras = useCallback(async () => {
@@ -267,7 +362,7 @@ export default function ConfiguracoesPage() {
     try {
       // Converter "nenhuma" para null antes de salvar
       const filialParaSalvar = filialUsuario === 'nenhuma' || filialUsuario === '' ? null : filialUsuario
-      
+
       // Usar função RPC para evitar problemas de RLS
       const { error } = await supabase.rpc('update_usuario_by_admin', {
         usuario_id: usuarioEditando.id,
@@ -299,14 +394,36 @@ export default function ConfiguracoesPage() {
   const executarExcluirUsuario = async () => {
     if (!idUsuarioExcluir) return
     try {
-      const { error } = await supabase
-        .from('usuarios')
-        .delete()
-        .eq('id', idUsuarioExcluir)
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        toast.error('Sessão expirada. Faça login novamente.')
+        return
+      }
 
-      if (error) throw error
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId: idUsuarioExcluir }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        toast.error(data.error || 'Erro ao excluir usuário')
+        return
+      }
+
+      if (data.warning) {
+        toast.warning(data.error || 'Usuário parcialmente removido')
+      } else {
+        toast.success('Usuário excluído com sucesso')
+      }
+
       registrarLog(supabase, 'Excluiu usuário')
-      toast.success('Usuário excluído')
       carregarUsuarios()
       setIdUsuarioExcluir(null)
     } catch (error) {
@@ -339,8 +456,12 @@ export default function ConfiguracoesPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="usuarios" className="space-y-4">
+      <Tabs defaultValue="perfil" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="perfil">
+            <User className="w-4 h-4 mr-2" />
+            Perfil
+          </TabsTrigger>
           <TabsTrigger value="usuarios">
             <Users className="w-4 h-4 mr-2" />
             Usuários
@@ -358,6 +479,68 @@ export default function ConfiguracoesPage() {
             Sistema
           </TabsTrigger>
         </TabsList>
+
+        {/* Tab de Perfil */}
+        <TabsContent value="perfil">
+          <Card>
+            <CardHeader>
+              <CardTitle>Meu Perfil</CardTitle>
+              <CardDescription>
+                Gerencie suas informações pessoais e foto de perfil
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Avatar */}
+              <div className="flex flex-col items-center space-y-4">
+                <Avatar className="h-32 w-32">
+                  {perfilUsuario?.avatar_url && (
+                    <AvatarImage src={perfilUsuario.avatar_url} alt={perfilUsuario.nome} />
+                  )}
+                  <AvatarFallback className="bg-green-600 text-white text-4xl font-bold">
+                    {perfilUsuario?.nome.substring(0, 2).toUpperCase() || 'US'}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="text-center">
+                  <h3 className="font-semibold text-lg">{perfilUsuario?.nome}</h3>
+                  <p className="text-sm text-muted-foreground">{perfilUsuario?.email}</p>
+                </div>
+                <div>
+                  <input
+                    type="file"
+                    id="avatar-upload"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    className="hidden"
+                    onChange={handleAvatarUpload}
+                    disabled={uploadandoAvatar}
+                  />
+                  <label htmlFor="avatar-upload">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={uploadandoAvatar}
+                      onClick={() => document.getElementById('avatar-upload')?.click()}
+                    >
+                      {uploadandoAvatar ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Enviando...
+                        </>
+                      ) : (
+                        <>
+                          <UploadIcon className="w-4 h-4 mr-2" />
+                          Upload Foto
+                        </>
+                      )}
+                    </Button>
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    JPG, JPEG, PNG ou WEBP. Máximo 2MB.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="usuarios">
           <Card>
@@ -425,6 +608,14 @@ export default function ConfiguracoesPage() {
                                 onClick={() => abrirEdicaoUsuario(usuario)}
                               >
                                 <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirConfirmExcluirUsuario(usuario.id)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>
                           </TableCell>
@@ -565,344 +756,345 @@ export default function ConfiguracoesPage() {
             </CardContent>
           </Card>
         </TabsContent>
-      </Tabs>
+      </Tabs >
 
       {/* Dialog de Edição / Cadastro de Usuário */}
-      <Dialog open={dialogUsuarioAberto} onOpenChange={setDialogUsuarioAberto}>
+      < Dialog open={dialogUsuarioAberto} onOpenChange={setDialogUsuarioAberto} >
         {dialogUsuarioAberto && (
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{usuarioEditando ? 'Editar Usuário' : 'Cadastrar novo usuário'}</DialogTitle>
-            <DialogDescription>
-              {usuarioEditando ? 'Altere os dados e permissões do usuário' : 'Preencha os dados. O usuário ficará ativo e poderá acessar o sistema.'}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Nome</Label>
-              <Input
-                value={nomeUsuario}
-                onChange={(e) => setNomeUsuario(e.target.value)}
-                placeholder="Nome completo"
-              />
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{usuarioEditando ? 'Editar Usuário' : 'Cadastrar novo usuário'}</DialogTitle>
+              <DialogDescription>
+                {usuarioEditando ? 'Altere os dados e permissões do usuário' : 'Preencha os dados. O usuário ficará ativo e poderá acessar o sistema.'}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label>Nome</Label>
+                <Input
+                  value={nomeUsuario}
+                  onChange={(e) => setNomeUsuario(e.target.value)}
+                  placeholder="Nome completo"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={emailUsuario}
+                  onChange={(e) => setEmailUsuario(e.target.value)}
+                  placeholder="email@exemplo.com"
+                  disabled={!!usuarioEditando}
+                />
+                {usuarioEditando && <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui.</p>}
+              </div>
+              <div className="space-y-2">
+                <Label>{usuarioEditando ? 'Senha (deixe vazio para não alterar)' : 'Senha (mín. 6 caracteres)'}</Label>
+                <Input
+                  type="password"
+                  value={senhaUsuario}
+                  onChange={(e) => setSenhaUsuario(e.target.value)}
+                  placeholder="••••••"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Tipo de Usuário</Label>
+                <Select value={tipoUsuario} onValueChange={(v) => setTipoUsuario(v as TipoUsuario)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="novo">Novo</SelectItem>
+                    <SelectItem value="colaborador">Colaborador (comum)</SelectItem>
+                    <SelectItem value="gestor">Gestor</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Filial</Label>
+                <Select value={filialUsuario || "nenhuma"} onValueChange={(v) => setFilialUsuario(v === "nenhuma" ? "" : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nenhuma">Nenhuma</SelectItem>
+                    {filiais.map(f => (
+                      <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="ativo"
+                  checked={ativoUsuario}
+                  onChange={(e) => setAtivoUsuario(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="ativo">Usuário Ativo</Label>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>Email</Label>
-              <Input
-                type="email"
-                value={emailUsuario}
-                onChange={(e) => setEmailUsuario(e.target.value)}
-                placeholder="email@exemplo.com"
-                disabled={!!usuarioEditando}
-              />
-              {usuarioEditando && <p className="text-xs text-muted-foreground">Email não pode ser alterado aqui.</p>}
-            </div>
-            <div className="space-y-2">
-              <Label>{usuarioEditando ? 'Senha (deixe vazio para não alterar)' : 'Senha (mín. 6 caracteres)'}</Label>
-              <Input
-                type="password"
-                value={senhaUsuario}
-                onChange={(e) => setSenhaUsuario(e.target.value)}
-                placeholder="••••••"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Tipo de Usuário</Label>
-              <Select value={tipoUsuario} onValueChange={(v) => setTipoUsuario(v as TipoUsuario)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="novo">Novo</SelectItem>
-                  <SelectItem value="colaborador">Colaborador (comum)</SelectItem>
-                  <SelectItem value="gestor">Gestor</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Filial</Label>
-              <Select value={filialUsuario || "nenhuma"} onValueChange={(v) => setFilialUsuario(v === "nenhuma" ? "" : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="nenhuma">Nenhuma</SelectItem>
-                  {filiais.map(f => (
-                    <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="ativo"
-                checked={ativoUsuario}
-                onChange={(e) => setAtivoUsuario(e.target.checked)}
-                className="w-4 h-4"
-              />
-              <Label htmlFor="ativo">Usuário Ativo</Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogUsuarioAberto(false)}>
-              Cancelar
-            </Button>
-            {usuarioEditando ? (
-              <Button onClick={() => setConfirmSalvarUsuarioOpen(true)} className="bg-green-600 hover:bg-green-700">
-                <Save className="w-4 h-4 mr-2" />
-                Salvar
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogUsuarioAberto(false)}>
+                Cancelar
               </Button>
-            ) : (
-              <Button onClick={cadastrarNovoUsuario} disabled={salvandoNovoUsuario} className="bg-green-600 hover:bg-green-700">
-                <Save className="w-4 h-4 mr-2" />
-                {salvandoNovoUsuario ? 'Cadastrando...' : 'Cadastrar'}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-        )}
-      </Dialog>
+              {usuarioEditando ? (
+                <Button onClick={() => setConfirmSalvarUsuarioOpen(true)} className="bg-green-600 hover:bg-green-700">
+                  <Save className="w-4 h-4 mr-2" />
+                  Salvar
+                </Button>
+              ) : (
+                <Button onClick={cadastrarNovoUsuario} disabled={salvandoNovoUsuario} className="bg-green-600 hover:bg-green-700">
+                  <Save className="w-4 h-4 mr-2" />
+                  {salvandoNovoUsuario ? 'Cadastrando...' : 'Cadastrar'}
+                </Button>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        )
+        }
+      </Dialog >
 
       {/* Dialog Editar Meta */}
-      <Dialog open={dialogMetaAberto} onOpenChange={setDialogMetaAberto}>
+      < Dialog open={dialogMetaAberto} onOpenChange={setDialogMetaAberto} >
         {dialogMetaAberto && (
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Editar Meta de Produtividade</DialogTitle>
-            <DialogDescription>
-              Meta em R$ por colaborador (máximo bônus mensal)
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Label>Meta (R$)</Label>
-            <Input
-              type="number"
-              min={0}
-              max={10000}
-              step={50}
-              value={metaValor}
-              onChange={(e) => setMetaValor(Number(e.target.value) || 0)}
-              className="mt-2"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogMetaAberto(false)}>Cancelar</Button>
-            <Button onClick={() => setConfirmSalvarMetaOpen(true)} disabled={salvandoMeta} className="bg-green-600 hover:bg-green-700">
-              {salvandoMeta ? 'Salvando...' : 'Salvar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Editar Meta de Produtividade</DialogTitle>
+              <DialogDescription>
+                Meta em R$ por colaborador (máximo bônus mensal)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <Label>Meta (R$)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={10000}
+                step={50}
+                value={metaValor}
+                onChange={(e) => setMetaValor(Number(e.target.value) || 0)}
+                className="mt-2"
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogMetaAberto(false)}>Cancelar</Button>
+              <Button onClick={() => setConfirmSalvarMetaOpen(true)} disabled={salvandoMeta} className="bg-green-600 hover:bg-green-700">
+                {salvandoMeta ? 'Salvando...' : 'Salvar'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
         )}
-      </Dialog>
+      </Dialog >
 
       {/* Dialog Editar Regras */}
-      <Dialog open={dialogRegrasAberto} onOpenChange={setDialogRegrasAberto}>
+      < Dialog open={dialogRegrasAberto} onOpenChange={setDialogRegrasAberto} >
         {dialogRegrasAberto && (
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Editar Regras de Cálculo</DialogTitle>
-            <DialogDescription>
-              Faixas mínimas e valor em R$ para cada métrica. Percentuais: KG 50%, VOL 30%, PLT 20%.
-            </DialogDescription>
-          </DialogHeader>
-          {regras && (
-            <div className="space-y-6 py-4">
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <Label>% Kg/Hora</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.1}
-                    value={regras.percentuais_metricas.kg_hora}
-                    onChange={(e) =>
-                      setRegras({
-                        ...regras,
-                        percentuais_metricas: {
-                          ...regras.percentuais_metricas,
-                          kg_hora: Number(e.target.value) || 0,
-                        },
-                      })
-                    }
-                  />
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Editar Regras de Cálculo</DialogTitle>
+              <DialogDescription>
+                Faixas mínimas e valor em R$ para cada métrica. Percentuais: KG 50%, VOL 30%, PLT 20%.
+              </DialogDescription>
+            </DialogHeader>
+            {regras && (
+              <div className="space-y-6 py-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label>% Kg/Hora</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={regras.percentuais_metricas.kg_hora}
+                      onChange={(e) =>
+                        setRegras({
+                          ...regras,
+                          percentuais_metricas: {
+                            ...regras.percentuais_metricas,
+                            kg_hora: Number(e.target.value) || 0,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>% Vol/Hora</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={regras.percentuais_metricas.vol_hora}
+                      onChange={(e) =>
+                        setRegras({
+                          ...regras,
+                          percentuais_metricas: {
+                            ...regras.percentuais_metricas,
+                            vol_hora: Number(e.target.value) || 0,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>% Plt/Hora</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={regras.percentuais_metricas.plt_hora}
+                      onChange={(e) =>
+                        setRegras({
+                          ...regras,
+                          percentuais_metricas: {
+                            ...regras.percentuais_metricas,
+                            plt_hora: Number(e.target.value) || 0,
+                          },
+                        })
+                      }
+                    />
+                  </div>
                 </div>
                 <div>
-                  <Label>% Vol/Hora</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.1}
-                    value={regras.percentuais_metricas.vol_hora}
-                    onChange={(e) =>
-                      setRegras({
-                        ...regras,
-                        percentuais_metricas: {
-                          ...regras.percentuais_metricas,
-                          vol_hora: Number(e.target.value) || 0,
-                        },
-                      })
-                    }
-                  />
+                  <h4 className="font-medium mb-2">KG/Hora (mínimo → valor R$)</h4>
+                  <div className="border rounded-md overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Mín. Kg/Hora</TableHead>
+                          <TableHead>Valor (R$)</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {regras.regras_kg_hora.map((r, i) => (
+                          <TableRow key={i}>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={r.kg_hora ?? ''}
+                                onChange={(e) => {
+                                  const v = [...regras.regras_kg_hora]
+                                  v[i] = { ...v[i], kg_hora: Number(e.target.value) || 0, valor: v[i].valor }
+                                  setRegras({ ...regras, regras_kg_hora: v })
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={r.valor ?? ''}
+                                onChange={(e) => {
+                                  const v = [...regras.regras_kg_hora]
+                                  v[i] = { ...v[i], valor: Number(e.target.value) || 0, kg_hora: v[i].kg_hora }
+                                  setRegras({ ...regras, regras_kg_hora: v })
+                                }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
                 <div>
-                  <Label>% Plt/Hora</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.1}
-                    value={regras.percentuais_metricas.plt_hora}
-                    onChange={(e) =>
-                      setRegras({
-                        ...regras,
-                        percentuais_metricas: {
-                          ...regras.percentuais_metricas,
-                          plt_hora: Number(e.target.value) || 0,
-                        },
-                      })
-                    }
-                  />
-                </div>
-              </div>
-              <div>
-                <h4 className="font-medium mb-2">KG/Hora (mínimo → valor R$)</h4>
-                <div className="border rounded-md overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Mín. Kg/Hora</TableHead>
-                        <TableHead>Valor (R$)</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {regras.regras_kg_hora.map((r, i) => (
-                        <TableRow key={i}>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={r.kg_hora ?? ''}
-                              onChange={(e) => {
-                                const v = [...regras.regras_kg_hora]
-                                v[i] = { ...v[i], kg_hora: Number(e.target.value) || 0, valor: v[i].valor }
-                                setRegras({ ...regras, regras_kg_hora: v })
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={r.valor ?? ''}
-                              onChange={(e) => {
-                                const v = [...regras.regras_kg_hora]
-                                v[i] = { ...v[i], valor: Number(e.target.value) || 0, kg_hora: v[i].kg_hora }
-                                setRegras({ ...regras, regras_kg_hora: v })
-                              }}
-                            />
-                          </TableCell>
+                  <h4 className="font-medium mb-2">Vol/Hora (mínimo → valor R$)</h4>
+                  <div className="border rounded-md overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Mín. Vol/Hora</TableHead>
+                          <TableHead>Valor (R$)</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {regras.regras_vol_hora.map((r, i) => (
+                          <TableRow key={i}>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={r.vol_hora ?? ''}
+                                onChange={(e) => {
+                                  const v = [...regras.regras_vol_hora]
+                                  v[i] = { ...v[i], vol_hora: Number(e.target.value) || 0, valor: v[i].valor }
+                                  setRegras({ ...regras, regras_vol_hora: v })
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={r.valor ?? ''}
+                                onChange={(e) => {
+                                  const v = [...regras.regras_vol_hora]
+                                  v[i] = { ...v[i], valor: Number(e.target.value) || 0, vol_hora: v[i].vol_hora }
+                                  setRegras({ ...regras, regras_vol_hora: v })
+                                }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <h4 className="font-medium mb-2">Vol/Hora (mínimo → valor R$)</h4>
-                <div className="border rounded-md overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Mín. Vol/Hora</TableHead>
-                        <TableHead>Valor (R$)</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {regras.regras_vol_hora.map((r, i) => (
-                        <TableRow key={i}>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={r.vol_hora ?? ''}
-                              onChange={(e) => {
-                                const v = [...regras.regras_vol_hora]
-                                v[i] = { ...v[i], vol_hora: Number(e.target.value) || 0, valor: v[i].valor }
-                                setRegras({ ...regras, regras_vol_hora: v })
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={r.valor ?? ''}
-                              onChange={(e) => {
-                                const v = [...regras.regras_vol_hora]
-                                v[i] = { ...v[i], valor: Number(e.target.value) || 0, vol_hora: v[i].vol_hora }
-                                setRegras({ ...regras, regras_vol_hora: v })
-                              }}
-                            />
-                          </TableCell>
+                <div>
+                  <h4 className="font-medium mb-2">Plt/Hora (mínimo → valor R$)</h4>
+                  <div className="border rounded-md overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Mín. Plt/Hora</TableHead>
+                          <TableHead>Valor (R$)</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {regras.regras_plt_hora.map((r, i) => (
+                          <TableRow key={i}>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                step={0.1}
+                                value={r.plt_hora ?? ''}
+                                onChange={(e) => {
+                                  const v = [...regras.regras_plt_hora]
+                                  v[i] = { ...v[i], plt_hora: Number(e.target.value) || 0, valor: v[i].valor }
+                                  setRegras({ ...regras, regras_plt_hora: v })
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <Input
+                                type="number"
+                                value={r.valor ?? ''}
+                                onChange={(e) => {
+                                  const v = [...regras.regras_plt_hora]
+                                  v[i] = { ...v[i], valor: Number(e.target.value) || 0, plt_hora: v[i].plt_hora }
+                                  setRegras({ ...regras, regras_plt_hora: v })
+                                }}
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </div>
-              <div>
-                <h4 className="font-medium mb-2">Plt/Hora (mínimo → valor R$)</h4>
-                <div className="border rounded-md overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Mín. Plt/Hora</TableHead>
-                        <TableHead>Valor (R$)</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {regras.regras_plt_hora.map((r, i) => (
-                        <TableRow key={i}>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              step={0.1}
-                              value={r.plt_hora ?? ''}
-                              onChange={(e) => {
-                                const v = [...regras.regras_plt_hora]
-                                v[i] = { ...v[i], plt_hora: Number(e.target.value) || 0, valor: v[i].valor }
-                                setRegras({ ...regras, regras_plt_hora: v })
-                              }}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              value={r.valor ?? ''}
-                              onChange={(e) => {
-                                const v = [...regras.regras_plt_hora]
-                                v[i] = { ...v[i], valor: Number(e.target.value) || 0, plt_hora: v[i].plt_hora }
-                                setRegras({ ...regras, regras_plt_hora: v })
-                              }}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogRegrasAberto(false)}>Cancelar</Button>
-            <Button onClick={() => setConfirmSalvarRegrasOpen(true)} disabled={salvandoRegras || !regras} className="bg-green-600 hover:bg-green-700">
-              {salvandoRegras ? 'Salvando...' : 'Salvar'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogRegrasAberto(false)}>Cancelar</Button>
+              <Button onClick={() => setConfirmSalvarRegrasOpen(true)} disabled={salvandoRegras || !regras} className="bg-green-600 hover:bg-green-700">
+                {salvandoRegras ? 'Salvando...' : 'Salvar'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
         )}
-      </Dialog>
+      </Dialog >
 
       <ConfirmDialog
         open={confirmSalvarUsuarioOpen}
@@ -940,6 +1132,6 @@ export default function ConfiguracoesPage() {
         confirmLabel="Sim"
         cancelLabel="Não"
       />
-    </div>
+    </div >
   )
 }

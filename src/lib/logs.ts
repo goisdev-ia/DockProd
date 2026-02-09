@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 export async function registrarLog(
   supabase: SupabaseClient,
-  acao: string
+  acao: string,
+  id_carga_cliente?: string | null
 ): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser()
@@ -37,6 +38,7 @@ export async function registrarLog(
       id_filial,
       filial_nome,
       acao,
+      id_carga_cliente: id_carga_cliente ?? null,
     })
   } catch {
     // Silently ignore log errors to not break the main flow

@@ -171,7 +171,7 @@ export default function DashboardPage() {
   const [periodoEvolucao, setPeriodoEvolucao] = useState<PeriodoOption>('trimestre_atual')
   const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
   const [colaboradores, setColaboradores] = useState<{ id: string; nome: string }[]>([])
-  const [showFilters, setShowFilters] = useState(true)
+  const [showFilters, setShowFilters] = useState(false)
   const [opcoesClientes, setOpcoesClientes] = useState<string[]>([])
   const [kpis, setKpis] = useState({
     totalProdutividade: 0,
@@ -190,21 +190,26 @@ export default function DashboardPage() {
   const [resumoColaborador, setResumoColaborador] = useState<ResumoColaboradorRow[]>([])
   const [resumoFilial, setResumoFilial] = useState<ResumoFilialRow[]>([])
   const [evolucaoDataInterna, setEvolucaoDataInterna] = useState<EvolucaoRow[]>([])
+  const [pieChartMesAno, setPieChartMesAno] = useState<string>(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
+  const [cargasPorColaborador, setCargasPorColaborador] = useState<{ nome: string; total: number }[]>([])
 
   const carregarUsuarioLogado = useCallback(async () => {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     if (user) {
       const { data: usuario } = await supabase
         .from('usuarios')
         .select('tipo, id_filial')
         .eq('id', user.id)
         .single()
-      
+
       if (usuario) {
         setUsuarioLogado(usuario)
-        
+
         // Se for colaborador, fixar a filial
         if (usuario.tipo === 'colaborador' && usuario.id_filial) {
           setFilialSelecionada(usuario.id_filial)
@@ -260,6 +265,45 @@ export default function DashboardPage() {
     return p
   }, [idFilial, datasPrincipal, buscaDebounced, colaboradorIds, filtroCliente])
 
+  const carregarCargasPorColaborador = useCallback(async () => {
+    const supabase = createClient()
+    try {
+      const [ano, mes] = pieChartMesAno.split('-').map(Number)
+      const mesInicio = new Date(ano, mes - 1, 1)
+      const mesFim = new Date(ano, mes, 0) // último dia do mês
+
+      let query = supabase
+        .from('dados_produtividade')
+        .select('colaborador, id_carga_cliente')
+        .gte('data_carga', toISODate(mesInicio))
+        .lte('data_carga', toISODate(mesFim))
+
+      if (idFilial) query = query.eq('id_filial', idFilial)
+      if (buscaDebounced) query = query.ilike('colaborador', `%${buscaDebounced}%`)
+      if (colaboradorIds.length > 0) query = query.in('id_colaborador', colaboradorIds)
+
+      const { data } = await query
+
+      if (data) {
+        const grouped = data.reduce((acc, row) => {
+          const nome = row.colaborador || 'Sem nome'
+          if (!acc[nome]) acc[nome] = new Set()
+          if (row.id_carga_cliente) acc[nome].add(row.id_carga_cliente)
+          return acc
+        }, {} as Record<string, Set<string>>)
+
+        const result = Object.entries(grouped)
+          .map(([nome, cargas]) => ({ nome, total: cargas.size }))
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 10) // Top 10
+
+        setCargasPorColaborador(result)
+      }
+    } catch (error) {
+      console.error('Erro ao carregar cargas por colaborador:', error)
+    }
+  }, [pieChartMesAno, idFilial, buscaDebounced, colaboradorIds])
+
   const carregarKPIs = useCallback(async () => {
     const supabase = createClient()
     setLoading(true)
@@ -310,20 +354,14 @@ export default function DashboardPage() {
         queryFechamento = queryFechamento.in('id_colaborador', colaboradorIds)
       }
       const { data: fechamentos } = await queryFechamento
-      
-      console.log('Fechamentos retornados:', fechamentos?.length ?? 0, 'registros')
-      console.log('Filtro de mês/ano:', mesAnoList)
-      
+
       const totalProdutividade =
         fechamentos?.reduce((sum, f) => sum + (Number(f.produtividade_final) || 0), 0) ?? 0
-      const somaPercentualAtingimento = 
+      const somaPercentualAtingimento =
         fechamentos?.reduce((sum, f) => sum + (Number(f.percentual_atingimento) || 0), 0) ?? 0
-      const percentualAtingimento = (fechamentos?.length ?? 0) > 0 
-        ? somaPercentualAtingimento / (fechamentos?.length ?? 1) 
+      const percentualAtingimento = (fechamentos?.length ?? 0) > 0
+        ? somaPercentualAtingimento / (fechamentos?.length ?? 1)
         : 0
-      
-      console.log('Total Produtividade:', totalProdutividade)
-      console.log('Percentual Atingimento:', percentualAtingimento)
       const chartList: FechamentoChartRow[] = (fechamentos ?? []).map((f: Record<string, unknown>) => ({
         id_colaborador: f.id_colaborador as string,
         id_filial: f.id_filial as string,
@@ -431,6 +469,10 @@ export default function DashboardPage() {
     carregarKPIs()
   }, [carregarKPIs])
 
+  useEffect(() => {
+    carregarCargasPorColaborador()
+  }, [carregarCargasPorColaborador])
+
   const formatarMoeda = (valor: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
@@ -470,7 +512,7 @@ export default function DashboardPage() {
   const porColaboradorArrTotais = useMemo(() => isPeriodoMensalOuMaior
     ? Object.values(porColaboradorR$).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total)
     : resumoColaborador.map((r) => ({ nome: r.nome, produtividade_final: 0, peso_liquido_total: r.peso_total, volume_total: r.volume_total, paletes_total: r.paletes_total, valor_descontos: 0 })).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total),
-  [isPeriodoMensalOuMaior, porColaboradorR$, resumoColaborador])
+    [isPeriodoMensalOuMaior, porColaboradorR$, resumoColaborador])
   const porColaboradorArrR$ = useMemo(() => Object.values(porColaboradorR$).sort((a, b) => b.produtividade_final - a.produtividade_final).slice(0, 10), [porColaboradorR$])
   const porColaboradorArr = useMemo(() => porColaboradorArrTotais.slice(0, 10), [porColaboradorArrTotais])
   const descontosPorColaborador = useMemo(() => Object.values(porColaboradorR$)
@@ -497,7 +539,7 @@ export default function DashboardPage() {
   const porFilialArrTotais = useMemo(() => isPeriodoMensalOuMaior
     ? Object.values(porFilialR$).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total)
     : resumoFilial.map((r) => ({ nome: r.nome, produtividade_final: 0, peso_liquido_total: r.peso_total, volume_total: r.volume_total, paletes_total: r.paletes_total })).sort((a, b) => b.peso_liquido_total - a.peso_liquido_total),
-  [isPeriodoMensalOuMaior, porFilialR$, resumoFilial])
+    [isPeriodoMensalOuMaior, porFilialR$, resumoFilial])
   const porFilialArrR$ = useMemo(() => Object.values(porFilialR$).sort((a, b) => b.produtividade_final - a.produtividade_final), [porFilialR$])
   const porFilialArr = porFilialArrTotais
   const evolucaoFormatada = useMemo(() => evolucaoDataInterna.map((r) => ({
@@ -559,8 +601,8 @@ export default function DashboardPage() {
             >
               Limpar filtros
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="sm"
               onClick={() => setShowFilters(!showFilters)}
               className="gap-2"
@@ -572,115 +614,115 @@ export default function DashboardPage() {
           </div>
         </CardHeader>
         {showFilters && (
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="filial">Filial</Label>
-              <Select 
-                value={filialSelecionada} 
-                onValueChange={setFilialSelecionada}
-                disabled={usuarioLogado?.tipo === 'colaborador'}
-              >
-                <SelectTrigger id="filial">
-                  <SelectValue placeholder="Selecione..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {usuarioLogado?.tipo === 'admin' && (
-                    <SelectItem value="todas">Todas as Filiais</SelectItem>
-                  )}
-                  {filiais.map(filial => (
-                    <SelectItem key={filial.id} value={filial.id}>
-                      {filial.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {usuarioLogado?.tipo === 'colaborador' && (
-                <p className="text-xs text-muted-foreground">
-                  Filial fixa conforme seu perfil
-                </p>
-              )}
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="filial">Filial</Label>
+                <Select
+                  value={filialSelecionada}
+                  onValueChange={setFilialSelecionada}
+                  disabled={usuarioLogado?.tipo === 'colaborador'}
+                >
+                  <SelectTrigger id="filial">
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {usuarioLogado?.tipo === 'admin' && (
+                      <SelectItem value="todas">Todas as Filiais</SelectItem>
+                    )}
+                    {filiais.map(filial => (
+                      <SelectItem key={filial.id} value={filial.id}>
+                        {filial.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {usuarioLogado?.tipo === 'colaborador' && (
+                  <p className="text-xs text-muted-foreground">
+                    Filial fixa conforme seu perfil
+                  </p>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="periodo">Período</Label>
+                <Select value={periodoSelecionado} onValueChange={setPeriodoSelecionado}>
+                  <SelectTrigger id="periodo">
+                    <SelectValue placeholder="Selecione..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PERIODO_OPCOES.map((op) => (
+                      <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Data de Carga (início)</Label>
+                <Input
+                  type="date"
+                  value={dataCargaInicio}
+                  onChange={(e) => setDataCargaInicio(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Data de Carga (fim)</Label>
+                <Input
+                  type="date"
+                  value={dataCargaFim}
+                  onChange={(e) => setDataCargaFim(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="busca">Busca Geral</Label>
+                <Input
+                  id="busca"
+                  placeholder="Buscar por colaborador, cliente, carga..."
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label>Colaborador</Label>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between font-normal">
+                      {colaboradorIds.length === 0 ? 'Todos' : `${colaboradorIds.length} selecionado(s)`}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-60 overflow-auto">
+                    {colaboradores.map((col) => (
+                      <DropdownMenuCheckboxItem
+                        key={col.id}
+                        checked={colaboradorIds.includes(col.id)}
+                        onCheckedChange={(checked) => {
+                          setColaboradorIds((prev) =>
+                            checked ? [...prev, col.id] : prev.filter((id) => id !== col.id)
+                          )
+                        }}
+                      >
+                        {col.nome}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              <div className="space-y-2">
+                <Label>Cliente</Label>
+                <Select value={filtroCliente} onValueChange={setFiltroCliente}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos os clientes" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__TODOS__">Todos</SelectItem>
+                    {opcoesClientes.slice(0, 100).map((cliente) => (
+                      <SelectItem key={cliente} value={cliente}>{cliente}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="periodo">Período</Label>
-              <Select value={periodoSelecionado} onValueChange={setPeriodoSelecionado}>
-                <SelectTrigger id="periodo">
-                  <SelectValue placeholder="Selecione..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {PERIODO_OPCOES.map((op) => (
-                    <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Data de Carga (início)</Label>
-              <Input
-                type="date"
-                value={dataCargaInicio}
-                onChange={(e) => setDataCargaInicio(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Data de Carga (fim)</Label>
-              <Input
-                type="date"
-                value={dataCargaFim}
-                onChange={(e) => setDataCargaFim(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="busca">Busca Geral</Label>
-              <Input
-                id="busca"
-                placeholder="Buscar por colaborador, cliente, carga..."
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label>Colaborador</Label>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between font-normal">
-                    {colaboradorIds.length === 0 ? 'Todos' : `${colaboradorIds.length} selecionado(s)`}
-                    <ChevronDown className="h-4 w-4 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-60 overflow-auto">
-                  {colaboradores.map((col) => (
-                    <DropdownMenuCheckboxItem
-                      key={col.id}
-                      checked={colaboradorIds.includes(col.id)}
-                      onCheckedChange={(checked) => {
-                        setColaboradorIds((prev) =>
-                          checked ? [...prev, col.id] : prev.filter((id) => id !== col.id)
-                        )
-                      }}
-                    >
-                      {col.nome}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-            <div className="space-y-2">
-              <Label>Cliente</Label>
-              <Select value={filtroCliente} onValueChange={setFiltroCliente}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos os clientes" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__TODOS__">Todos</SelectItem>
-                  {opcoesClientes.slice(0, 100).map((cliente) => (
-                    <SelectItem key={cliente} value={cliente}>{cliente}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
+          </CardContent>
         )}
       </Card>
 
@@ -752,22 +794,22 @@ export default function DashboardPage() {
             <CardDescription>Peso líquido, Volume e Paletes ao longo do tempo</CardDescription>
           </div>
           <div className="flex gap-2">
-            <Button 
-              variant={periodoEvolucao === 'ultimos_7' ? 'default' : 'outline'} 
+            <Button
+              variant={periodoEvolucao === 'ultimos_7' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setPeriodoEvolucao('ultimos_7')}
             >
               7d
             </Button>
-            <Button 
-              variant={periodoEvolucao === 'mes_atual' ? 'default' : 'outline'} 
+            <Button
+              variant={periodoEvolucao === 'mes_atual' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setPeriodoEvolucao('mes_atual')}
             >
               30d
             </Button>
-            <Button 
-              variant={periodoEvolucao === 'trimestre_atual' ? 'default' : 'outline'} 
+            <Button
+              variant={periodoEvolucao === 'trimestre_atual' ? 'default' : 'outline'}
               size="sm"
               onClick={() => setPeriodoEvolucao('trimestre_atual')}
             >
@@ -779,20 +821,20 @@ export default function DashboardPage() {
           {evolucaoFormatada.length === 0 ? (
             <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados no período</div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={300}>
               <AreaChart data={evolucaoFormatada}>
                 <defs>
                   <linearGradient id="colorKg" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#166534" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#166534" stopOpacity={0.1}/>
+                    <stop offset="5%" stopColor="#166534" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#166534" stopOpacity={0.1} />
                   </linearGradient>
                   <linearGradient id="colorVolume" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#16a34a" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#16a34a" stopOpacity={0.1}/>
+                    <stop offset="5%" stopColor="#16a34a" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#16a34a" stopOpacity={0.1} />
                   </linearGradient>
                   <linearGradient id="colorPaletes" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.1}/>
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.1} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" />
@@ -822,7 +864,7 @@ export default function DashboardPage() {
             ) : porColaboradorArrR$.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados no período</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                 <BarChart data={porColaboradorArrR$.map(c => ({ ...c, nome: formatarNomeColaborador(c.nome) }))} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
@@ -845,7 +887,7 @@ export default function DashboardPage() {
             {porColaboradorArr.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                 <BarChart data={porColaboradorArr.slice(0, 8).map(c => ({ ...c, nome: formatarNomeColaborador(c.nome) }))} margin={{ top: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
@@ -877,7 +919,7 @@ export default function DashboardPage() {
             ) : porFilialArrR$.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados no período</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                 <RadarChart data={porFilialArrR$.map(f => ({ ...f, filial: f.nome, valor: f.produtividade_final }))}>
                   <PolarGrid stroke="#e5e7eb" />
                   <PolarAngleAxis dataKey="filial" tick={{ fontSize: 11 }} />
@@ -897,7 +939,7 @@ export default function DashboardPage() {
             {porFilialArr.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                 <BarChart data={porFilialArr}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
@@ -920,7 +962,7 @@ export default function DashboardPage() {
             {topClientesData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                 <AreaChart data={topClientesData.map((r) => ({ ...r, nome: r.cliente.length > 20 ? r.cliente.slice(0, 20) + '…' : r.cliente }))}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
@@ -943,7 +985,7 @@ export default function DashboardPage() {
             ) : descontosPorColaborador.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Nenhum desconto no período</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                 <BarChart data={descontosPorColaborador.map(c => ({ ...c, nome: formatarNomeColaborador(c.nome) }))} layout="horizontal" margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
@@ -968,7 +1010,7 @@ export default function DashboardPage() {
             ) : pieDataDescontos.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Nenhum desconto no período</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
                 <PieChart>
                   <Pie
                     data={pieDataDescontos}
@@ -985,6 +1027,61 @@ export default function DashboardPage() {
                   </Pie>
                   <Tooltip formatter={(v: number | undefined) => (v != null ? `${Number(v).toFixed(1)}%` : '')} />
                   <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>9. Distribuição de Cargas por Colaborador</CardTitle>
+              <CardDescription>Número de cargas separadas no mês selecionado</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="pie-mes" className="text-sm text-muted-foreground">Mês:</Label>
+              <Input
+                id="pie-mes"
+                type="month"
+                value={pieChartMesAno}
+                onChange={(e) => setPieChartMesAno(e.target.value)}
+                className="w-40"
+              />
+            </div>
+          </CardHeader>
+          <CardContent className="h-80">
+            {cargasPorColaborador.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados no mês selecionado</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%" minHeight={300}>
+                <PieChart>
+                  <Pie
+                    data={cargasPorColaborador.map((c, i) => ({
+                      name: formatarNomeColaborador(c.nome),
+                      value: c.total,
+                      fill: ['#166534', '#15803d', '#16a34a', '#22c55e', '#4ade80', '#86efac', '#bbf7d0', '#dcfce7', '#14532d', '#052e16'][i % 10]
+                    }))}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    label={({ name, value, percent }) => `${name}: ${value} (${((percent ?? 0) * 100).toFixed(0)}%)`}
+                    labelLine={{ stroke: '#666', strokeWidth: 1 }}
+                  >
+                    {cargasPorColaborador.map((_, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={['#166534', '#15803d', '#16a34a', '#22c55e', '#4ade80', '#86efac', '#bbf7d0', '#dcfce7', '#14532d', '#052e16'][index % 10]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v: number | undefined) => `${v ?? 0} cargas`} />
+                  <Legend
+                    verticalAlign="bottom"
+                    height={36}
+                    formatter={(value) => value}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             )}

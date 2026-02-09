@@ -47,6 +47,13 @@ function getMesFormatado(mesNome: string, ano: number): string {
   return `${mesAbrev}/${ano}`
 }
 
+/** Primeiros 2 nomes do colaborador (igual ao Dashboard). */
+function formatarNomeColab(nome: string): string {
+  const partes = nome.trim().split(' ')
+  if (partes.length >= 2) return `${partes[0]} ${partes[1]}`
+  return partes[0] || nome
+}
+
 const ROWS_PER_PAGE = 50
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -126,11 +133,25 @@ export function gerarRelatorioHTML(
   const filialVolume = JSON.stringify(filialEntries.map(e => Number(e[1].volume.toFixed(0))))
   const filialPaletes = JSON.stringify(filialEntries.map(e => Number(e[1].paletes.toFixed(1))))
 
-  // 6. Atingimento da Meta (distribuição)
-  const abaixo50 = data.filter(r => r.percentual_atingimento < 50).length
-  const entre50e80 = data.filter(r => r.percentual_atingimento >= 50 && r.percentual_atingimento < 80).length
-  const entre80e100 = data.filter(r => r.percentual_atingimento >= 80 && r.percentual_atingimento < 100).length
-  const acima100 = data.filter(r => r.percentual_atingimento >= 100).length
+  // 8. Descontos em % dos Colaboradores (mesma lógica do Dashboard: percentual_erros + percentual_descontos, top 12)
+  const porColabDescontosPerc = data.reduce((acc, r) => {
+    const nome = r.colaborador_nome || 'Sem nome'
+    if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
+    acc[nome].percentual += (r.percentual_erros ?? 0) + (r.percentual_descontos ?? 0)
+    return acc
+  }, {} as Record<string, { nome: string; percentual: number }>)
+  const descontosPercTop = Object.values(porColabDescontosPerc)
+    .filter(d => d.percentual > 0)
+    .sort((a, b) => b.percentual - a.percentual)
+    .slice(0, 12)
+    .map((d, i) => ({
+      name: formatarNomeColab(d.nome),
+      value: Math.round(d.percentual * 10) / 10,
+      fill: ['#b91c1c', '#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca', '#991b1b', '#7f1d1d'][i % 8],
+    }))
+  const descontosPercLabels = JSON.stringify(descontosPercTop.map(d => d.name))
+  const descontosPercValues = JSON.stringify(descontosPercTop.map(d => d.value))
+  const descontosPercCores = JSON.stringify(descontosPercTop.map(d => d.fill))
 
   // 7. Descontos por Colaborador (R$)
   const descontosColab = [...data].filter(r => r.valor_descontos > 0).sort((a, b) => b.valor_descontos - a.valor_descontos).slice(0, 10)
@@ -530,8 +551,8 @@ export function gerarRelatorioHTML(
 </div>
 <div class="chart-grid">
   <div class="chart-card">
-    <h3>6. Distribuição de Atingimento</h3>
-    <div class="chart-container"><canvas id="chartAtingimento"></canvas></div>
+    <h3>8. Descontos em % dos Colaboradores</h3>
+    <div class="chart-container"><canvas id="chartDescontosPerc"></canvas></div>
   </div>
   <div class="chart-card">
     <h3>7. Descontos por Colaborador (R$)</h3>
@@ -682,25 +703,34 @@ ${fechTablesHtml}
     }
   });
 
-  // 6. Atingimento da Meta (Doughnut)
-  new Chart(document.getElementById('chartAtingimento'), {
-    type: 'doughnut',
-    data: {
-      labels: ['< 50%', '50-80%', '80-100%', '>= 100%'],
-      datasets: [{
-        data: [${abaixo50}, ${entre50e80}, ${entre80e100}, ${acima100}],
-        backgroundColor: ['#dc2626', '#ea580c', '#eab308', '#228B22']
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { position: 'right', labels: { font: { size: 9 }, boxWidth: 8, padding: 4 } },
-        tooltip: commonOpts.plugins.tooltip
+  // 8. Descontos em % dos Colaboradores (igual ao Dashboard: Pie/Doughnut)
+  const chartDescontosPercEl = document.getElementById('chartDescontosPerc');
+  const descontosPercDataLength = ${descontosPercTop.length};
+  if (descontosPercDataLength > 0) {
+    new Chart(chartDescontosPercEl, {
+      type: 'doughnut',
+      data: {
+        labels: ${descontosPercLabels},
+        datasets: [{
+          data: ${descontosPercValues},
+          backgroundColor: ${descontosPercCores}
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'right', labels: { font: { size: 9 }, boxWidth: 8, padding: 4 } },
+          tooltip: {
+            ...commonOpts.plugins.tooltip,
+            callbacks: { label: function(ctx) { return (ctx.label || '') + ': ' + (ctx.raw != null ? Number(ctx.raw).toFixed(1) : '') + '%'; } }
+          }
+        }
       }
-    }
-  });
+    });
+  } else {
+    chartDescontosPercEl.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;">Nenhum desconto no período</div>';
+  }
 
   // 7. Descontos Colaborador (valores dentro das barras - cor clara para contraste no vermelho)
   new Chart(document.getElementById('chartDescontos'), {

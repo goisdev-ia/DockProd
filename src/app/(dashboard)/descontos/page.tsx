@@ -28,12 +28,12 @@ export default function DescontosPage() {
   const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
-  
+
   // Paginação
   const [paginaAtual, setPaginaAtual] = useState(1)
   const [totalPaginas, setTotalPaginas] = useState(1)
-  const registrosPorPagina = 100
-  
+  const registrosPorPagina = 50
+
   // Filtros
   const [filtroColaborador, setFiltroColaborador] = useState('todos')
   const [filtroFilial, setFiltroFilial] = useState('todas')
@@ -52,12 +52,12 @@ export default function DescontosPage() {
   const [filtroMatricula, setFiltroMatricula] = useState('')
   const [buscaDebounced, setBuscaDebounced] = useState('')
   const [matriculaDebounced, setMatriculaDebounced] = useState('')
-  
+
   // Dialog
   const [dialogAberto, setDialogAberto] = useState(false)
   const [modoEdicao, setModoEdicao] = useState(false)
   const [descontoEditando, setDescontoEditando] = useState<DescontoExtendido | null>(null)
-  
+
   // Form
   const [colaboradorSelecionado, setColaboradorSelecionado] = useState('selecione')
   const [mesSelecionado, setMesSelecionado] = useState('selecione')
@@ -88,17 +88,17 @@ export default function DescontosPage() {
 
   const carregarUsuarioLogado = async () => {
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     if (user) {
       const { data: usuario } = await supabase
         .from('usuarios')
         .select('tipo, id_filial')
         .eq('id', user.id)
         .single()
-      
+
       if (usuario) {
         setUsuarioLogado(usuario)
-        
+
         // Se for colaborador, fixar a filial
         if (usuario.tipo === 'colaborador' && usuario.id_filial) {
           setFiltroFilial(usuario.id_filial)
@@ -156,7 +156,7 @@ export default function DescontosPage() {
       .select('*')
       .eq('ativo', true)
       .order('nome')
-    
+
     if (data) setColaboradores(data)
   }
 
@@ -165,7 +165,7 @@ export default function DescontosPage() {
       .from('filiais')
       .select('*')
       .eq('ativo', true)
-    
+
     if (data) setFiliais(data)
   }
 
@@ -295,13 +295,13 @@ export default function DescontosPage() {
 
   const calcularPercentualTotal = () => {
     let percentual = 0
-    
+
     // Regras de descontos baseadas nas imagens
     if (faltaInjustificada > 0) percentual += 100
     if (ferias) percentual += 100
     if (advertencia > 0) percentual += advertencia * 50
     if (suspensao > 0) percentual += suspensao * 100
-    
+
     // Atestado
     if (atestadoDias > 0) {
       if (atestadoDias <= 2) percentual += 25
@@ -358,7 +358,7 @@ export default function DescontosPage() {
       if (!colaborador) return
 
       const percentualTotal = calcularPercentualTotal()
-      
+
       const dadosDesconto = {
         id_colaborador: colaboradorSelecionado,
         id_filial: colaborador.id_filial,
@@ -450,189 +450,189 @@ export default function DescontosPage() {
         filtrosAtivos={contarFiltrosAtivos()}
         onLimparFiltros={limparFiltros}
       >
-          <div className="space-y-4">
-            {/* Linha 1 */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label>Colaborador</Label>
-                <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos</SelectItem>
-                    {colaboradores.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Filial</Label>
-                <Select 
-                  value={filtroFilial} 
-                  onValueChange={setFiltroFilial}
-                  disabled={usuarioLogado?.tipo === 'colaborador'}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {usuarioLogado?.tipo === 'admin' && (
-                      <SelectItem value="todas">Todas</SelectItem>
-                    )}
-                    {filiais.map(f => (
-                      <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {usuarioLogado?.tipo === 'colaborador' && (
-                  <p className="text-xs text-muted-foreground">
-                    Fixado para sua filial
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>Mês</Label>
-                <Select value={filtroMes} onValueChange={setFiltroMes}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos</SelectItem>
-                    {meses.map(m => (
-                      <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Matrícula</Label>
+        <div className="space-y-4">
+          {/* Linha 1 */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <Label>Colaborador</Label>
+              <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  {colaboradores.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Filial</Label>
+              <Select
+                value={filtroFilial}
+                onValueChange={setFiltroFilial}
+                disabled={usuarioLogado?.tipo === 'colaborador'}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  {usuarioLogado?.tipo === 'admin' && (
+                    <SelectItem value="todas">Todas</SelectItem>
+                  )}
+                  {filiais.map(f => (
+                    <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {usuarioLogado?.tipo === 'colaborador' && (
+                <p className="text-xs text-muted-foreground">
+                  Fixado para sua filial
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Mês</Label>
+              <Select value={filtroMes} onValueChange={setFiltroMes}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  {meses.map(m => (
+                    <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Matrícula</Label>
+              <Input
+                placeholder="Filtrar por matrícula..."
+                value={filtroMatricula}
+                onChange={(e) => setFiltroMatricula(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Linha 2 - Busca */}
+          <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-2">
+              <Label>Busca</Label>
+              <Input
+                placeholder="Buscar por colaborador, observação..."
+                value={filtroBusca}
+                onChange={(e) => setFiltroBusca(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Linha 3 - Filtros Numéricos */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Faltas</Label>
+              <div className="flex gap-2">
                 <Input
-                  placeholder="Filtrar por matrícula..."
-                  value={filtroMatricula}
-                  onChange={(e) => setFiltroMatricula(e.target.value)}
+                  type="number"
+                  placeholder="Min"
+                  value={filtroFaltasMin}
+                  onChange={(e) => setFiltroFaltasMin(e.target.value)}
+                  min="0"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroFaltasMax}
+                  onChange={(e) => setFiltroFaltasMax(e.target.value)}
+                  min="0"
                 />
               </div>
             </div>
-
-            {/* Linha 2 - Busca */}
-            <div className="grid grid-cols-1 gap-4">
-              <div className="space-y-2">
-                <Label>Busca</Label>
+            <div className="space-y-2">
+              <Label>Advertências</Label>
+              <div className="flex gap-2">
                 <Input
-                  placeholder="Buscar por colaborador, observação..."
-                  value={filtroBusca}
-                  onChange={(e) => setFiltroBusca(e.target.value)}
+                  type="number"
+                  placeholder="Min"
+                  value={filtroAdvertenciasMin}
+                  onChange={(e) => setFiltroAdvertenciasMin(e.target.value)}
+                  min="0"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroAdvertenciasMax}
+                  onChange={(e) => setFiltroAdvertenciasMax(e.target.value)}
+                  min="0"
                 />
               </div>
             </div>
-
-            {/* Linha 3 - Filtros Numéricos */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Faltas</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroFaltasMin}
-                    onChange={(e) => setFiltroFaltasMin(e.target.value)}
-                    min="0"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroFaltasMax}
-                    onChange={(e) => setFiltroFaltasMax(e.target.value)}
-                    min="0"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Advertências</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroAdvertenciasMin}
-                    onChange={(e) => setFiltroAdvertenciasMin(e.target.value)}
-                    min="0"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroAdvertenciasMax}
-                    onChange={(e) => setFiltroAdvertenciasMax(e.target.value)}
-                    min="0"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Suspensões</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroSuspensoesMin}
-                    onChange={(e) => setFiltroSuspensoesMin(e.target.value)}
-                    min="0"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroSuspensoesMax}
-                    onChange={(e) => setFiltroSuspensoesMax(e.target.value)}
-                    min="0"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Linha 4 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Atestado (dias)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroAtestadoMin}
-                    onChange={(e) => setFiltroAtestadoMin(e.target.value)}
-                    min="0"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroAtestadoMax}
-                    onChange={(e) => setFiltroAtestadoMax(e.target.value)}
-                    min="0"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Férias (0=Não, 1=Sim)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroFeriasMin}
-                    onChange={(e) => setFiltroFeriasMin(e.target.value)}
-                    min="0"
-                    max="1"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroFeriasMax}
-                    onChange={(e) => setFiltroFeriasMax(e.target.value)}
-                    min="0"
-                    max="1"
-                  />
-                </div>
+            <div className="space-y-2">
+              <Label>Suspensões</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filtroSuspensoesMin}
+                  onChange={(e) => setFiltroSuspensoesMin(e.target.value)}
+                  min="0"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroSuspensoesMax}
+                  onChange={(e) => setFiltroSuspensoesMax(e.target.value)}
+                  min="0"
+                />
               </div>
             </div>
           </div>
+
+          {/* Linha 4 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Atestado (dias)</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filtroAtestadoMin}
+                  onChange={(e) => setFiltroAtestadoMin(e.target.value)}
+                  min="0"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroAtestadoMax}
+                  onChange={(e) => setFiltroAtestadoMax(e.target.value)}
+                  min="0"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Férias (0=Não, 1=Sim)</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filtroFeriasMin}
+                  onChange={(e) => setFiltroFeriasMin(e.target.value)}
+                  min="0"
+                  max="1"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroFeriasMax}
+                  onChange={(e) => setFiltroFeriasMax(e.target.value)}
+                  min="0"
+                  max="1"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </FilterToggle>
 
       {/* Tabela */}
@@ -756,127 +756,127 @@ export default function DescontosPage() {
       {/* Dialog */}
       <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
         {dialogAberto && (
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{modoEdicao ? 'Editar' : 'Novo'} Desconto</DialogTitle>
-            <DialogDescription>
-              Preencha os dados do desconto que será aplicado na produtividade
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Colaborador *</Label>
-                <Select value={colaboradorSelecionado} onValueChange={setColaboradorSelecionado}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {colaboradores.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{modoEdicao ? 'Editar' : 'Novo'} Desconto</DialogTitle>
+              <DialogDescription>
+                Preencha os dados do desconto que será aplicado na produtividade
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Mês *</Label>
-                  <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+                  <Label>Colaborador *</Label>
+                  <Select value={colaboradorSelecionado} onValueChange={setColaboradorSelecionado}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Mês" />
+                      <SelectValue placeholder="Selecione..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {meses.map(m => (
-                        <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                      {colaboradores.map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
-                  <Label>Ano *</Label>
-                  <Input
-                    type="number"
-                    value={anoSelecionado}
-                    onChange={(e) => setAnoSelecionado(Number(e.target.value))}
-                  />
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-2">
+                    <Label>Mês *</Label>
+                    <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Mês" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {meses.map(m => (
+                          <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ano *</Label>
+                    <Input
+                      type="number"
+                      value={anoSelecionado}
+                      onChange={(e) => setAnoSelecionado(Number(e.target.value))}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Faltas Injustificadas</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={faltaInjustificada}
+                    onChange={(e) => setFaltaInjustificada(Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">100% de desconto</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Advertências</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={advertencia}
+                    onChange={(e) => setAdvertencia(Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">50% cada</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Suspensões</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={suspensao}
+                    onChange={(e) => setSuspensao(Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">100% cada</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Dias de Atestado</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={atestadoDias}
+                    onChange={(e) => setAtestadoDias(Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Até 2d: 25%, 3-5d: 50%, 6-7d: 70%, +7d: 100%
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2">
+                    <Checkbox checked={ferias} onCheckedChange={(checked) => setFerias(checked as boolean)} />
+                    Férias
+                  </Label>
+                  <p className="text-xs text-muted-foreground">100% de desconto</p>
+                </div>
+              </div>
               <div className="space-y-2">
-                <Label>Faltas Injustificadas</Label>
+                <Label>Observação</Label>
                 <Input
-                  type="number"
-                  min="0"
-                  value={faltaInjustificada}
-                  onChange={(e) => setFaltaInjustificada(Number(e.target.value))}
+                  value={observacao}
+                  onChange={(e) => setObservacao(e.target.value)}
+                  placeholder="Adicione observações..."
                 />
-                <p className="text-xs text-muted-foreground">100% de desconto</p>
               </div>
-              <div className="space-y-2">
-                <Label>Advertências</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={advertencia}
-                  onChange={(e) => setAdvertencia(Number(e.target.value))}
-                />
-                <p className="text-xs text-muted-foreground">50% cada</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Suspensões</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={suspensao}
-                  onChange={(e) => setSuspensao(Number(e.target.value))}
-                />
-                <p className="text-xs text-muted-foreground">100% cada</p>
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm font-medium">Desconto Total Calculado:</p>
+                <p className="text-2xl font-bold text-amber-700">{calcularPercentualTotal()}%</p>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Dias de Atestado</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={atestadoDias}
-                  onChange={(e) => setAtestadoDias(Number(e.target.value))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Até 2d: 25%, 3-5d: 50%, 6-7d: 70%, +7d: 100%
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <Checkbox checked={ferias} onCheckedChange={(checked) => setFerias(checked as boolean)} />
-                  Férias
-                </Label>
-                <p className="text-xs text-muted-foreground">100% de desconto</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Observação</Label>
-              <Input
-                value={observacao}
-                onChange={(e) => setObservacao(e.target.value)}
-                placeholder="Adicione observações..."
-              />
-            </div>
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-sm font-medium">Desconto Total Calculado:</p>
-              <p className="text-2xl font-bold text-amber-700">{calcularPercentualTotal()}%</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogAberto(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={() => setConfirmSalvarOpen(true)} className="bg-green-600 hover:bg-green-700">
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogAberto(false)}>
+                Cancelar
+              </Button>
+              <Button onClick={() => setConfirmSalvarOpen(true)} className="bg-green-600 hover:bg-green-700">
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
         )}
       </Dialog>
 

@@ -29,14 +29,14 @@ interface FilialRow {
 
 export default function CadastrosPage() {
   const [colaboradores, setColaboradores] = useState<ColaboradorExtendido[]>([])
-  const [filiais, setFiliais] = useState<{ id: string; nome: string; [key: string]: unknown }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string;[key: string]: unknown }[]>([])
   const [loading, setLoading] = useState(true)
-  
+
   // Dialog
   const [dialogAberto, setDialogAberto] = useState(false)
   const [modoEdicao, setModoEdicao] = useState(false)
   const [colaboradorEditando, setColaboradorEditando] = useState<Colaborador | null>(null)
-  
+
   // Form
   const [matricula, setMatricula] = useState('')
   const [nome, setNome] = useState('')
@@ -54,6 +54,13 @@ export default function CadastrosPage() {
   const [confirmSalvarFilialOpen, setConfirmSalvarFilialOpen] = useState(false)
   const [confirmAlternarOpen, setConfirmAlternarOpen] = useState(false)
   const [alternarPayload, setAlternarPayload] = useState<{ id: string; ativoAtual: boolean } | null>(null)
+
+  // Delete state
+  const [confirmDeleteColabOpen, setConfirmDeleteColabOpen] = useState(false)
+  const [colaboradorParaDeletar, setColaboradorParaDeletar] = useState<string | null>(null)
+  const [confirmDeleteFilialOpen, setConfirmDeleteFilialOpen] = useState(false)
+  const [filialParaDeletar, setFilialParaDeletar] = useState<string | null>(null)
+
   const inputFileRef = useRef<HTMLInputElement>(null)
 
   const supabase = createClient()
@@ -280,6 +287,52 @@ export default function CadastrosPage() {
     abrirConfirmAlternar(id, ativoAtual)
   }
 
+  // Delete colaborador
+  const abrirConfirmDeleteColab = (id: string) => {
+    setColaboradorParaDeletar(id)
+    setConfirmDeleteColabOpen(true)
+  }
+
+  const executarDeleteColab = async () => {
+    if (!colaboradorParaDeletar) return
+    try {
+      const { error } = await supabase
+        .from('colaboradores')
+        .delete()
+        .eq('id', colaboradorParaDeletar)
+      if (error) throw error
+      carregarDados()
+    } catch (error) {
+      console.error('Erro ao excluir colaborador:', error)
+      alert('Erro ao excluir colaborador. Pode haver dados vinculados.')
+    } finally {
+      setColaboradorParaDeletar(null)
+    }
+  }
+
+  // Delete filial
+  const abrirConfirmDeleteFilial = (id: string) => {
+    setFilialParaDeletar(id)
+    setConfirmDeleteFilialOpen(true)
+  }
+
+  const executarDeleteFilial = async () => {
+    if (!filialParaDeletar) return
+    try {
+      const { error } = await supabase
+        .from('filiais')
+        .delete()
+        .eq('id', filialParaDeletar)
+      if (error) throw error
+      carregarFiliais()
+    } catch (error) {
+      console.error('Erro ao excluir filial:', error)
+      alert('Erro ao excluir filial. Pode haver colaboradores vinculados.')
+    } finally {
+      setFilialParaDeletar(null)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -296,162 +349,170 @@ export default function CadastrosPage() {
         </TabsList>
 
         <TabsContent value="colaboradores" className="space-y-4">
-      <div className="flex flex-wrap gap-2 justify-between items-center">
-        <div className="flex gap-2">
-          <Button onClick={abrirNovo} className="bg-green-600 hover:bg-green-700">
-            <UserPlus className="w-4 h-4 mr-2" />
-            Novo Colaborador
-          </Button>
-          <Button variant="outline" onClick={exportarColaboradores}>
-            <Download className="w-4 h-4 mr-2" />
-            Exportar lista
-          </Button>
-          <Button variant="outline" onClick={() => inputFileRef.current?.click()}>
-            <Upload className="w-4 h-4 mr-2" />
-            Importar (XLSX)
-          </Button>
-          <input ref={inputFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={importarColaboradores} />
-        </div>
-      </div>
+          <div className="flex flex-wrap gap-2 justify-between items-center">
+            <div className="flex gap-2">
+              <Button onClick={abrirNovo} className="bg-green-600 hover:bg-green-700">
+                <UserPlus className="w-4 h-4 mr-2" />
+                Novo Colaborador
+              </Button>
+              <Button variant="outline" onClick={exportarColaboradores}>
+                <Download className="w-4 h-4 mr-2" />
+                Exportar lista
+              </Button>
+              <Button variant="outline" onClick={() => inputFileRef.current?.click()}>
+                <Upload className="w-4 h-4 mr-2" />
+                Importar (XLSX)
+              </Button>
+              <input ref={inputFileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={importarColaboradores} />
+            </div>
+          </div>
 
-      {/* Tabela Colaboradores */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Lista de Colaboradores</CardTitle>
-          <CardDescription>
-            {colaboradores.length} colaborador(es) cadastrado(s)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="border rounded-lg overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Matrícula</TableHead>
-                  <TableHead>Nome</TableHead>
-                  <TableHead>Filial</TableHead>
-                  <TableHead>Função</TableHead>
-                  <TableHead className="text-center">Status</TableHead>
-                  <TableHead className="text-center">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8">
-                      Carregando...
-                    </TableCell>
-                  </TableRow>
-                ) : colaboradores.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      Nenhum colaborador cadastrado
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  colaboradores.map((colaborador) => (
-                    <TableRow key={colaborador.id}>
-                      <TableCell className="font-mono">{colaborador.matricula}</TableCell>
-                      <TableCell className="font-medium">{colaborador.nome}</TableCell>
-                      <TableCell className="text-xs">{colaborador.filiais?.nome}</TableCell>
-                      <TableCell>{colaborador.funcao}</TableCell>
-                      <TableCell className="text-center">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => alternarStatus(colaborador.id, colaborador.ativo)}
-                        >
-                          <Badge variant={colaborador.ativo ? 'default' : 'secondary'}>
-                            {colaborador.ativo ? 'Ativo' : 'Inativo'}
-                          </Badge>
-                        </Button>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => abrirEdicao(colaborador)}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+          {/* Tabela Colaboradores */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Lista de Colaboradores</CardTitle>
+              <CardDescription>
+                {colaboradores.length} colaborador(es) cadastrado(s)
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-lg overflow-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Matrícula</TableHead>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Filial</TableHead>
+                      <TableHead>Função</TableHead>
+                      <TableHead className="text-center">Status</TableHead>
+                      <TableHead className="text-center">Ações</TableHead>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8">
+                          Carregando...
+                        </TableCell>
+                      </TableRow>
+                    ) : colaboradores.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          Nenhum colaborador cadastrado
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      colaboradores.map((colaborador) => (
+                        <TableRow key={colaborador.id}>
+                          <TableCell className="font-mono">{colaborador.matricula}</TableCell>
+                          <TableCell className="font-medium">{colaborador.nome}</TableCell>
+                          <TableCell className="text-xs">{colaborador.filiais?.nome}</TableCell>
+                          <TableCell>{colaborador.funcao}</TableCell>
+                          <TableCell className="text-center">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => alternarStatus(colaborador.id, colaborador.ativo)}
+                            >
+                              <Badge variant={colaborador.ativo ? 'default' : 'secondary'}>
+                                {colaborador.ativo ? 'Ativo' : 'Inativo'}
+                              </Badge>
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex justify-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirEdicao(colaborador)}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirConfirmDeleteColab(colaborador.id)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
 
-      {/* Dialog */}
-      <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
-        {dialogAberto && (
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{modoEdicao ? 'Editar' : 'Novo'} Colaborador</DialogTitle>
-            <DialogDescription>
-              Preencha os dados do colaborador
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label>Matrícula *</Label>
-              <Input
-                value={matricula}
-                onChange={(e) => setMatricula(e.target.value)}
-                placeholder="Ex: 12345"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Nome Completo *</Label>
-              <Input
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                placeholder="Ex: João Silva"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Filial *</Label>
-              <Select value={filialSelecionada} onValueChange={setFilialSelecionada}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {filiais.map(f => (
-                    <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Função *</Label>
-              <Select value={funcao} onValueChange={setFuncao}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Separador">Separador</SelectItem>
-                  <SelectItem value="Conferente">Conferente</SelectItem>
-                  <SelectItem value="Supervisor">Supervisor</SelectItem>
-                  <SelectItem value="Líder">Líder</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogAberto(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={() => setConfirmSalvarColabOpen(true)} className="bg-green-600 hover:bg-green-700">
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-        )}
-      </Dialog>
+          {/* Dialog */}
+          <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
+            {dialogAberto && (
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{modoEdicao ? 'Editar' : 'Novo'} Colaborador</DialogTitle>
+                  <DialogDescription>
+                    Preencha os dados do colaborador
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Matrícula *</Label>
+                    <Input
+                      value={matricula}
+                      onChange={(e) => setMatricula(e.target.value)}
+                      placeholder="Ex: 12345"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Nome Completo *</Label>
+                    <Input
+                      value={nome}
+                      onChange={(e) => setNome(e.target.value)}
+                      placeholder="Ex: João Silva"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Filial *</Label>
+                    <Select value={filialSelecionada} onValueChange={setFilialSelecionada}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {filiais.map(f => (
+                          <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Função *</Label>
+                    <Select value={funcao} onValueChange={setFuncao}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Separador">Separador</SelectItem>
+                        <SelectItem value="Conferente">Conferente</SelectItem>
+                        <SelectItem value="Supervisor">Supervisor</SelectItem>
+                        <SelectItem value="Líder">Líder</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDialogAberto(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={() => setConfirmSalvarColabOpen(true)} className="bg-green-600 hover:bg-green-700">
+                    Salvar
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            )}
+          </Dialog>
 
         </TabsContent>
 
@@ -494,9 +555,19 @@ export default function CadastrosPage() {
                             <Badge variant={f.ativo ? 'default' : 'secondary'}>{f.ativo ? 'Ativo' : 'Inativo'}</Badge>
                           </TableCell>
                           <TableCell className="text-center">
-                            <Button size="sm" variant="ghost" onClick={() => abrirEdicaoFilial(f)}>
-                              <Edit className="w-4 h-4" />
-                            </Button>
+                            <div className="flex justify-center gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => abrirEdicaoFilial(f)}>
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => abrirConfirmDeleteFilial(f.id)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))
@@ -509,32 +580,32 @@ export default function CadastrosPage() {
 
           <Dialog open={dialogFilialAberto} onOpenChange={setDialogFilialAberto}>
             {dialogFilialAberto && (
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>{filialEditando ? 'Editar' : 'Nova'} Filial</DialogTitle>
-                <DialogDescription>Código e nome da filial</DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="space-y-2">
-                  <Label>Código *</Label>
-                  <Input value={filialCodigo} onChange={(e) => setFilialCodigo(e.target.value)} placeholder="Ex: CD01" disabled={!!filialEditando} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Nome *</Label>
-                  <Input value={filialNome} onChange={(e) => setFilialNome(e.target.value)} placeholder="Ex: Filial Centro" />
-                </div>
-                {filialEditando && (
-                  <div className="flex items-center gap-2">
-                    <input type="checkbox" id="filialAtivo" checked={filialAtivo} onChange={(e) => setFilialAtivo(e.target.checked)} className="w-4 h-4" />
-                    <Label htmlFor="filialAtivo">Ativo</Label>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{filialEditando ? 'Editar' : 'Nova'} Filial</DialogTitle>
+                  <DialogDescription>Código e nome da filial</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Código *</Label>
+                    <Input value={filialCodigo} onChange={(e) => setFilialCodigo(e.target.value)} placeholder="Ex: CD01" disabled={!!filialEditando} />
                   </div>
-                )}
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setDialogFilialAberto(false)}>Cancelar</Button>
-                <Button onClick={() => setConfirmSalvarFilialOpen(true)} className="bg-green-600 hover:bg-green-700">Salvar</Button>
-              </DialogFooter>
-            </DialogContent>
+                  <div className="space-y-2">
+                    <Label>Nome *</Label>
+                    <Input value={filialNome} onChange={(e) => setFilialNome(e.target.value)} placeholder="Ex: Filial Centro" />
+                  </div>
+                  {filialEditando && (
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" id="filialAtivo" checked={filialAtivo} onChange={(e) => setFilialAtivo(e.target.checked)} className="w-4 h-4" />
+                      <Label htmlFor="filialAtivo">Ativo</Label>
+                    </div>
+                  )}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setDialogFilialAberto(false)}>Cancelar</Button>
+                  <Button onClick={() => setConfirmSalvarFilialOpen(true)} className="bg-green-600 hover:bg-green-700">Salvar</Button>
+                </DialogFooter>
+              </DialogContent>
             )}
           </Dialog>
         </TabsContent>
@@ -566,6 +637,24 @@ export default function CadastrosPage() {
         onConfirm={executarAlternarStatus}
         confirmLabel="Sim"
         cancelLabel="Não"
+      />
+      <ConfirmDialog
+        open={confirmDeleteColabOpen}
+        onOpenChange={(open) => { setConfirmDeleteColabOpen(open); if (!open) setColaboradorParaDeletar(null) }}
+        title="Excluir Colaborador?"
+        message="Esta ação não pode ser desfeita. O colaborador será removido permanentemente."
+        onConfirm={executarDeleteColab}
+        confirmLabel="Excluir"
+        cancelLabel="Cancelar"
+      />
+      <ConfirmDialog
+        open={confirmDeleteFilialOpen}
+        onOpenChange={(open) => { setConfirmDeleteFilialOpen(open); if (!open) setFilialParaDeletar(null) }}
+        title="Excluir Filial?"
+        message="Esta ação não pode ser desfeita. A filial será removida permanentemente."
+        onConfirm={executarDeleteFilial}
+        confirmLabel="Excluir"
+        cancelLabel="Cancelar"
       />
     </div>
   )

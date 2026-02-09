@@ -21,7 +21,7 @@ export function FilterToggle({
   children,
   filtrosAtivos,
   onLimparFiltros,
-  defaultOpen = true,
+  defaultOpen = false,
 }: FilterToggleProps) {
   const [showFilters, setShowFilters] = useState(defaultOpen)
 

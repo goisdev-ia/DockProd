@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
-import { Calculator, RefreshCw, TrendingUp, AlertTriangle } from 'lucide-react'
+import { Calculator, RefreshCw, TrendingUp, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { FilterToggle } from '@/components/FilterToggle'
 import { toast } from 'sonner'
 import {
@@ -37,10 +37,19 @@ export default function ResultadoPage() {
   const [loading, setLoading] = useState(true)
   const [calculando, setCalculando] = useState(false)
   const [regrasCalculo, setRegrasCalculo] = useState<RegrasCalculo | null>(null)
-  
+
+  // Paginação
+  const [paginaAtual, setPaginaAtual] = useState(1)
+  const registrosPorPagina = 50
+  const totalPaginas = Math.ceil(fechamentosFiltrados.length / registrosPorPagina)
+  const dadosPaginados = fechamentosFiltrados.slice(
+    (paginaAtual - 1) * registrosPorPagina,
+    paginaAtual * registrosPorPagina
+  )
+
   const [mesSelecionado, setMesSelecionado] = useState('')
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
-  
+
   // Filtros adicionais
   const [filtroColaborador, setFiltroColaborador] = useState('todos')
   const [filtroFilial, setFiltroFilial] = useState('todas')
@@ -72,11 +81,11 @@ export default function ResultadoPage() {
   const [filtroProdFinalMaxApplied, setFiltroProdFinalMaxApplied] = useState('')
   const [filtroMetaMinApplied, setFiltroMetaMinApplied] = useState('')
   const [filtroMetaMaxApplied, setFiltroMetaMaxApplied] = useState('')
-  
+
   const [colaboradores, setColaboradores] = useState<{ id: string; nome: string }[]>([])
   const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
   const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
-  
+
   const supabase = createClient()
 
   const meses = [
@@ -105,17 +114,17 @@ export default function ResultadoPage() {
 
   const carregarUsuarioLogado = async () => {
     const { data: { user } } = await supabase.auth.getUser()
-    
+
     if (user) {
       const { data: usuario } = await supabase
         .from('usuarios')
         .select('tipo, id_filial')
         .eq('id', user.id)
         .single()
-      
+
       if (usuario) {
         setUsuarioLogado(usuario)
-        
+
         // Se for colaborador, fixar a filial
         if (usuario.tipo === 'colaborador' && usuario.id_filial) {
           setFiltroFilial(usuario.id_filial)
@@ -241,6 +250,7 @@ export default function ResultadoPage() {
     }
 
     setFechamentosFiltrados(filtrados)
+    setPaginaAtual(1)
   }, [fechamentos, filtroColaborador, filtroFilial, buscaDebounced, matriculaDebounced, filtroVlrKgHsMinApplied, filtroVlrKgHsMaxApplied, filtroVlrVolHsMinApplied, filtroVlrVolHsMaxApplied, filtroVlrPltHsMinApplied, filtroVlrPltHsMaxApplied, filtroProdBrutaMinApplied, filtroProdBrutaMaxApplied, filtroProdFinalMinApplied, filtroProdFinalMaxApplied, filtroMetaMinApplied, filtroMetaMaxApplied])
 
   useEffect(() => {
@@ -342,7 +352,7 @@ export default function ResultadoPage() {
       .select('*')
       .eq('ativo', true)
       .order('nome')
-    
+
     if (data) setColaboradores(data)
   }
 
@@ -351,7 +361,7 @@ export default function ResultadoPage() {
       .from('filiais')
       .select('*')
       .eq('ativo', true)
-    
+
     if (data) setFiliais(data)
   }
 
@@ -633,218 +643,218 @@ export default function ResultadoPage() {
         filtrosAtivos={contarFiltrosAtivos()}
         onLimparFiltros={limparFiltros}
       >
-          <div className="space-y-4">
-            {/* Linha 1 - Período */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Mês</Label>
-                <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o mês" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {meses.map(m => (
-                      <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Ano</Label>
-                <Select value={String(anoSelecionado)} onValueChange={(v) => setAnoSelecionado(Number(v))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="2024">2024</SelectItem>
-                    <SelectItem value="2025">2025</SelectItem>
-                    <SelectItem value="2026">2026</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+        <div className="space-y-4">
+          {/* Linha 1 - Período */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Mês</Label>
+              <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o mês" />
+                </SelectTrigger>
+                <SelectContent>
+                  {meses.map(m => (
+                    <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+            <div className="space-y-2">
+              <Label>Ano</Label>
+              <Select value={String(anoSelecionado)} onValueChange={(v) => setAnoSelecionado(Number(v))}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="2024">2024</SelectItem>
+                  <SelectItem value="2025">2025</SelectItem>
+                  <SelectItem value="2026">2026</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-            {/* Linha 2 - Colaborador/Filial/Busca */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label>Colaborador</Label>
-                <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todos" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos</SelectItem>
-                    {colaboradores.map(c => (
-                      <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Filial</Label>
-                <Select 
-                  value={filtroFilial} 
-                  onValueChange={setFiltroFilial}
-                  disabled={usuarioLogado?.tipo === 'colaborador'}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {usuarioLogado?.tipo === 'admin' && (
-                      <SelectItem value="todas">Todas</SelectItem>
-                    )}
-                    {filiais.map(f => (
-                      <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {usuarioLogado?.tipo === 'colaborador' && (
-                  <p className="text-xs text-muted-foreground">
-                    Fixado para sua filial
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>Busca</Label>
+          {/* Linha 2 - Colaborador/Filial/Busca */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <Label>Colaborador</Label>
+              <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  {colaboradores.map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Filial</Label>
+              <Select
+                value={filtroFilial}
+                onValueChange={setFiltroFilial}
+                disabled={usuarioLogado?.tipo === 'colaborador'}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  {usuarioLogado?.tipo === 'admin' && (
+                    <SelectItem value="todas">Todas</SelectItem>
+                  )}
+                  {filiais.map(f => (
+                    <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {usuarioLogado?.tipo === 'colaborador' && (
+                <p className="text-xs text-muted-foreground">
+                  Fixado para sua filial
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label>Busca</Label>
+              <Input
+                placeholder="Buscar colaborador, filial..."
+                value={filtroBusca}
+                onChange={(e) => setFiltroBusca(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Matrícula</Label>
+              <Input
+                placeholder="Filtrar por matrícula..."
+                value={filtroMatricula}
+                onChange={(e) => setFiltroMatricula(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Linha 3 - Valores */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Vlr Kg/Hs (R$)</Label>
+              <div className="flex gap-2">
                 <Input
-                  placeholder="Buscar colaborador, filial..."
-                  value={filtroBusca}
-                  onChange={(e) => setFiltroBusca(e.target.value)}
+                  type="number"
+                  placeholder="Min"
+                  value={filtroVlrKgHsMin}
+                  onChange={(e) => setFiltroVlrKgHsMin(e.target.value)}
+                  step="0.01"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroVlrKgHsMax}
+                  onChange={(e) => setFiltroVlrKgHsMax(e.target.value)}
+                  step="0.01"
                 />
               </div>
-              <div className="space-y-2">
-                <Label>Matrícula</Label>
+            </div>
+            <div className="space-y-2">
+              <Label>Vlr Vol/Hs (R$)</Label>
+              <div className="flex gap-2">
                 <Input
-                  placeholder="Filtrar por matrícula..."
-                  value={filtroMatricula}
-                  onChange={(e) => setFiltroMatricula(e.target.value)}
+                  type="number"
+                  placeholder="Min"
+                  value={filtroVlrVolHsMin}
+                  onChange={(e) => setFiltroVlrVolHsMin(e.target.value)}
+                  step="0.01"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroVlrVolHsMax}
+                  onChange={(e) => setFiltroVlrVolHsMax(e.target.value)}
+                  step="0.01"
                 />
               </div>
             </div>
-
-            {/* Linha 3 - Valores */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Vlr Kg/Hs (R$)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroVlrKgHsMin}
-                    onChange={(e) => setFiltroVlrKgHsMin(e.target.value)}
-                    step="0.01"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroVlrKgHsMax}
-                    onChange={(e) => setFiltroVlrKgHsMax(e.target.value)}
-                    step="0.01"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Vlr Vol/Hs (R$)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroVlrVolHsMin}
-                    onChange={(e) => setFiltroVlrVolHsMin(e.target.value)}
-                    step="0.01"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroVlrVolHsMax}
-                    onChange={(e) => setFiltroVlrVolHsMax(e.target.value)}
-                    step="0.01"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Vlr Plt/Hs (R$)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroVlrPltHsMin}
-                    onChange={(e) => setFiltroVlrPltHsMin(e.target.value)}
-                    step="0.01"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroVlrPltHsMax}
-                    onChange={(e) => setFiltroVlrPltHsMax(e.target.value)}
-                    step="0.01"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Linha 4 - Produtividade e Meta */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Prod. Bruta (R$)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroProdBrutaMin}
-                    onChange={(e) => setFiltroProdBrutaMin(e.target.value)}
-                    step="0.01"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroProdBrutaMax}
-                    onChange={(e) => setFiltroProdBrutaMax(e.target.value)}
-                    step="0.01"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Prod. Final (R$)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroProdFinalMin}
-                    onChange={(e) => setFiltroProdFinalMin(e.target.value)}
-                    step="0.01"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroProdFinalMax}
-                    onChange={(e) => setFiltroProdFinalMax(e.target.value)}
-                    step="0.01"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Meta (%)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Min"
-                    value={filtroMetaMin}
-                    onChange={(e) => setFiltroMetaMin(e.target.value)}
-                    step="1"
-                  />
-                  <Input
-                    type="number"
-                    placeholder="Max"
-                    value={filtroMetaMax}
-                    onChange={(e) => setFiltroMetaMax(e.target.value)}
-                    step="1"
-                  />
-                </div>
+            <div className="space-y-2">
+              <Label>Vlr Plt/Hs (R$)</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filtroVlrPltHsMin}
+                  onChange={(e) => setFiltroVlrPltHsMin(e.target.value)}
+                  step="0.01"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroVlrPltHsMax}
+                  onChange={(e) => setFiltroVlrPltHsMax(e.target.value)}
+                  step="0.01"
+                />
               </div>
             </div>
           </div>
+
+          {/* Linha 4 - Produtividade e Meta */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label>Prod. Bruta (R$)</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filtroProdBrutaMin}
+                  onChange={(e) => setFiltroProdBrutaMin(e.target.value)}
+                  step="0.01"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroProdBrutaMax}
+                  onChange={(e) => setFiltroProdBrutaMax(e.target.value)}
+                  step="0.01"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Prod. Final (R$)</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filtroProdFinalMin}
+                  onChange={(e) => setFiltroProdFinalMin(e.target.value)}
+                  step="0.01"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroProdFinalMax}
+                  onChange={(e) => setFiltroProdFinalMax(e.target.value)}
+                  step="0.01"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Meta (%)</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filtroMetaMin}
+                  onChange={(e) => setFiltroMetaMin(e.target.value)}
+                  step="1"
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filtroMetaMax}
+                  onChange={(e) => setFiltroMetaMax(e.target.value)}
+                  step="1"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </FilterToggle>
 
       {/* Tabela Fechamento */}
@@ -890,7 +900,7 @@ export default function ResultadoPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  fechamentosFiltrados.map((f) => (
+                  dadosPaginados.map((f) => (
                     <TableRow key={f.id}>
                       <TableCell className="font-medium">{f.colaborador_nome}</TableCell>
                       <TableCell>{f.colaborador_matricula}</TableCell>
@@ -954,7 +964,7 @@ export default function ResultadoPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  fechamentosFiltrados.map((f) => {
+                  dadosPaginados.map((f) => {
                     const corProdutividade = obterCorProdutividade(f.produtividade_final, f.meta)
                     return (
                       <TableRow key={f.id}>
@@ -1000,6 +1010,35 @@ export default function ResultadoPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Paginação */}
+      {totalPaginas > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Página {paginaAtual} de {totalPaginas} ({fechamentosFiltrados.length} registros)
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
+              disabled={paginaAtual === 1}
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Anterior
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
+              disabled={paginaAtual === totalPaginas}
+            >
+              Próxima
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
-import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, History } from 'lucide-react'
+import { Upload, FileSpreadsheet, CheckCircle, AlertCircle, Loader2, History, ChevronLeft, ChevronRight } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { registrarLog } from '@/lib/logs'
 
@@ -108,6 +108,8 @@ const CHAVES_INSERT: (keyof DadoProcessado)[] = [
   'rota', 'rede', 'cliente', 'cidade_cliente', 'uf', 'cod_cliente', 'erro_separacao', 'erro_entregas', 'mes',
 ]
 
+const LIMITE_POR_PAGINA = 50
+
 interface UploadHistoricoRow {
   id: string
   created_at: string
@@ -129,27 +131,35 @@ export default function UploadPage() {
   const [erro, setErro] = useState('')
   const [historico, setHistorico] = useState<UploadHistoricoRow[]>([])
   const [historicoLoading, setHistoricoLoading] = useState(false)
+  const [paginaAtual, setPaginaAtual] = useState(1)
+  const [totalRegistros, setTotalRegistros] = useState(0)
 
+  const totalPaginas = Math.max(1, Math.ceil(totalRegistros / LIMITE_POR_PAGINA))
   const supabase = createClient()
 
-  const carregarHistorico = async () => {
+  const carregarHistorico = async (pagina: number) => {
     setHistoricoLoading(true)
     try {
-      const { data } = await supabase
+      const from = (pagina - 1) * LIMITE_POR_PAGINA
+      const to = pagina * LIMITE_POR_PAGINA - 1
+      const { data, error, count } = await supabase
         .from('upload_historico')
-        .select('id, created_at, nome_arquivo, linhas_processadas, menor_carga, maior_carga, usuarios(nome, email)')
+        .select('id, created_at, nome_arquivo, linhas_processadas, menor_carga, maior_carga, usuarios(nome, email)', { count: 'exact' })
         .order('created_at', { ascending: false })
-        .limit(50)
+        .range(from, to)
+      if (error) throw error
       setHistorico((data ?? []) as unknown as UploadHistoricoRow[])
+      setTotalRegistros(typeof count === 'number' ? count : 0)
     } catch {
       setHistorico([])
+      setTotalRegistros(0)
     } finally {
       setHistoricoLoading(false)
     }
   }
 
   useEffect(() => {
-    carregarHistorico()
+    carregarHistorico(1)
   }, [])
 
   const processarArquivo = async (file: File) => {
@@ -322,7 +332,8 @@ export default function UploadPage() {
       setPreview(false)
       setDadosProcessados([])
       setArquivo(null)
-      carregarHistorico()
+      setPaginaAtual(1)
+      carregarHistorico(1)
       const input = document.getElementById('arquivo') as HTMLInputElement
       if (input) input.value = ''
     } catch (error: unknown) {
@@ -509,39 +520,77 @@ export default function UploadPage() {
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
-          ) : historico.length === 0 ? (
+          ) : historico.length === 0 && !historicoLoading ? (
             <p className="text-sm text-muted-foreground py-4">Nenhum upload registrado ainda.</p>
           ) : (
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Data e hora</TableHead>
-                    <TableHead>Nome do arquivo</TableHead>
-                    <TableHead className="text-right">Linhas</TableHead>
-                    <TableHead>Usuário</TableHead>
-                    <TableHead>Menor carga</TableHead>
-                    <TableHead>Maior carga</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {historico.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="text-sm whitespace-nowrap">
-                        {new Date(row.created_at).toLocaleString('pt-BR')}
-                      </TableCell>
-                      <TableCell className="font-medium">{row.nome_arquivo}</TableCell>
-                      <TableCell className="text-right">{row.linhas_processadas}</TableCell>
-                      <TableCell className="text-sm">
-                        {row.usuarios?.nome ?? row.usuarios?.email ?? '—'}
-                      </TableCell>
-                      <TableCell>{row.menor_carga ?? '—'}</TableCell>
-                      <TableCell>{row.maior_carga ?? '—'}</TableCell>
+            <>
+              <div className="border rounded-lg overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data e hora</TableHead>
+                      <TableHead>Nome do arquivo</TableHead>
+                      <TableHead className="text-right">Linhas</TableHead>
+                      <TableHead>Usuário</TableHead>
+                      <TableHead>Menor carga</TableHead>
+                      <TableHead>Maior carga</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {historico.map((row) => (
+                      <TableRow key={row.id}>
+                        <TableCell className="text-sm whitespace-nowrap">
+                          {new Date(row.created_at).toLocaleString('pt-BR')}
+                        </TableCell>
+                        <TableCell className="font-medium">{row.nome_arquivo}</TableCell>
+                        <TableCell className="text-right">{row.linhas_processadas}</TableCell>
+                        <TableCell className="text-sm">
+                          {row.usuarios?.nome ?? row.usuarios?.email ?? '—'}
+                        </TableCell>
+                        <TableCell>{row.menor_carga ?? '—'}</TableCell>
+                        <TableCell>{row.maior_carga ?? '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {totalRegistros > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t">
+                  <p className="text-sm text-muted-foreground">
+                    Mostrando {(paginaAtual - 1) * LIMITE_POR_PAGINA + 1}–{Math.min(paginaAtual * LIMITE_POR_PAGINA, totalRegistros)} de {totalRegistros} registros
+                    {totalPaginas > 1 && ` · Página ${paginaAtual} de ${totalPaginas}`}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const p = paginaAtual - 1
+                        setPaginaAtual(p)
+                        carregarHistorico(p)
+                      }}
+                      disabled={paginaAtual <= 1 || historicoLoading}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" />
+                      Anterior
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const p = paginaAtual + 1
+                        setPaginaAtual(p)
+                        carregarHistorico(p)
+                      }}
+                      disabled={paginaAtual >= totalPaginas || historicoLoading}
+                    >
+                      Próximo
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

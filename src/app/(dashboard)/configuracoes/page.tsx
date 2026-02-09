@@ -31,7 +31,7 @@ interface RegraTier {
 
 export default function ConfiguracoesPage() {
   const [usuarios, setUsuarios] = useState<UsuarioExtendido[]>([])
-  const [filiais, setFiliais] = useState<any[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string; [key: string]: unknown }[]>([])
   const [loading, setLoading] = useState(true)
   
   // Dialog de edição de usuário

@@ -127,7 +127,7 @@ export interface Fechamento {
 export interface Configuracao {
   id: string
   chave: string
-  valor: any
+  valor: unknown
   descricao: string | null
   created_at: string
   updated_at: string

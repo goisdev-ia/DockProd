@@ -73,8 +73,8 @@ export default function ResultadoPage() {
   const [filtroMetaMinApplied, setFiltroMetaMinApplied] = useState('')
   const [filtroMetaMaxApplied, setFiltroMetaMaxApplied] = useState('')
   
-  const [colaboradores, setColaboradores] = useState<any[]>([])
-  const [filiais, setFiliais] = useState<any[]>([])
+  const [colaboradores, setColaboradores] = useState<{ id: string; nome: string }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
   const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
   
   const supabase = createClient()
@@ -885,7 +885,7 @@ export default function ResultadoPage() {
                       <div className="flex flex-col items-center gap-2">
                         <AlertTriangle className="w-8 h-8 text-amber-500" />
                         <p>Nenhum fechamento encontrado para este período</p>
-                        <p className="text-sm">Clique em "Calcular Fechamento" para processar os dados</p>
+                        <p className="text-sm">Clique em &quot;Calcular Fechamento&quot; para processar os dados</p>
                       </div>
                     </TableCell>
                   </TableRow>

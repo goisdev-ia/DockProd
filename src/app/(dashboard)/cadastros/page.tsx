@@ -29,7 +29,7 @@ interface FilialRow {
 
 export default function CadastrosPage() {
   const [colaboradores, setColaboradores] = useState<ColaboradorExtendido[]>([])
-  const [filiais, setFiliais] = useState<any[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string; [key: string]: unknown }[]>([])
   const [loading, setLoading] = useState(true)
   
   // Dialog
@@ -243,9 +243,10 @@ export default function CadastrosPage() {
 
       setDialogAberto(false)
       carregarDados()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { code?: string }
       console.error('Erro ao salvar:', error)
-      if (error.code === '23505') {
+      if (err?.code === '23505') {
         alert('Esta matrícula já está cadastrada')
       } else {
         alert('Erro ao salvar colaborador')

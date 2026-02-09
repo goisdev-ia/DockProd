@@ -304,11 +304,12 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
     carregarUsuario()
   }, [supabase])
 
-  // Inicializar tema
+  // Inicializar tema (defer setState para evitar cascading renders)
   useEffect(() => {
     const temaArmazenado = localStorage.getItem('pickprod-tema') || 'light'
-    setTema(temaArmazenado)
     document.documentElement.classList.toggle('dark', temaArmazenado === 'dark')
+    const id = setTimeout(() => setTema(temaArmazenado), 0)
+    return () => clearTimeout(id)
   }, [])
 
   const toggleTema = () => {
@@ -330,7 +331,8 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
 
   // Fechar sheet mobile quando navegar
   useEffect(() => {
-    setMobileOpen(false)
+    const id = setTimeout(() => setMobileOpen(false), 0)
+    return () => clearTimeout(id)
   }, [pathname])
 
   const sidebarProps = {

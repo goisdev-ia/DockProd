@@ -829,7 +829,7 @@ export default function DashboardPage() {
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: number | undefined) => (v != null ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '')} />
                   <Bar dataKey="produtividade_final" name="R$" fill="#166534" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="produtividade_final" position="top" formatter={(v: any) => formatarMoeda(Number(v))} style={{ fontSize: 10 }} />
+                    <LabelList dataKey="produtividade_final" position="top" formatter={(v: unknown) => formatarMoeda(Number(v ?? 0))} style={{ fontSize: 10 }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -853,13 +853,13 @@ export default function DashboardPage() {
                   <Tooltip />
                   <Legend />
                   <Bar dataKey="peso_liquido_total" stackId="a" name="Peso (kg)" fill="#166534">
-                    <LabelList dataKey="peso_liquido_total" position="inside" formatter={(v: any) => Number(v) > 1000 ? formatarNumero(Number(v) / 1000, 1) + 't' : ''} style={{ fontSize: 9, fill: '#fff' }} />
+                    <LabelList dataKey="peso_liquido_total" position="inside" formatter={(v: unknown) => Number(v ?? 0) > 1000 ? formatarNumero(Number(v ?? 0) / 1000, 1) + 't' : ''} style={{ fontSize: 9, fill: '#fff' }} />
                   </Bar>
                   <Bar dataKey="volume_total" stackId="a" name="Volume" fill="#16a34a">
-                    <LabelList dataKey="volume_total" position="inside" formatter={(v: any) => Number(v) > 50 ? formatarNumero(Number(v), 0) : ''} style={{ fontSize: 9, fill: '#fff' }} />
+                    <LabelList dataKey="volume_total" position="inside" formatter={(v: unknown) => Number(v ?? 0) > 50 ? formatarNumero(Number(v ?? 0), 0) : ''} style={{ fontSize: 9, fill: '#fff' }} />
                   </Bar>
                   <Bar dataKey="paletes_total" stackId="a" name="Paletes" fill="#22c55e">
-                    <LabelList dataKey="paletes_total" position="inside" formatter={(v: any) => Number(v) > 5 ? formatarNumero(Number(v), 1) : ''} style={{ fontSize: 9, fill: '#fff' }} />
+                    <LabelList dataKey="paletes_total" position="inside" formatter={(v: unknown) => Number(v ?? 0) > 5 ? formatarNumero(Number(v ?? 0), 1) : ''} style={{ fontSize: 9, fill: '#fff' }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -950,7 +950,7 @@ export default function DashboardPage() {
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: number | undefined) => (v != null ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '')} />
                   <Bar dataKey="valor_descontos" name="Descontos" fill="#dc2626" radius={[4, 4, 0, 0]}>
-                    <LabelList dataKey="valor_descontos" position="top" formatter={(v: any) => formatarMoeda(Number(v))} style={{ fontSize: 10 }} />
+                    <LabelList dataKey="valor_descontos" position="top" formatter={(v: unknown) => formatarMoeda(Number(v ?? 0))} style={{ fontSize: 10 }} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>

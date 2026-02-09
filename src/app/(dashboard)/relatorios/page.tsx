@@ -40,8 +40,8 @@ export default function RelatoriosPage() {
   const [filtroFilial, setFiltroFilial] = useState('todas')
   const [filtroMatricula, setFiltroMatricula] = useState('')
   const [filtroBusca, setFiltroBusca] = useState('')
-  const [colaboradores, setColaboradores] = useState<any[]>([])
-  const [filiais, setFiliais] = useState<any[]>([])
+  const [colaboradores, setColaboradores] = useState<{ id: string; nome: string; matricula?: string }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
 
   // WhatsApp dialog
   const [showWhatsAppDialog, setShowWhatsAppDialog] = useState(false)

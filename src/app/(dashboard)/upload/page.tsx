@@ -140,7 +140,7 @@ export default function UploadPage() {
         .select('id, created_at, nome_arquivo, linhas_processadas, menor_carga, maior_carga, usuarios(nome, email)')
         .order('created_at', { ascending: false })
         .limit(50)
-      setHistorico((data ?? []) as UploadHistoricoRow[])
+      setHistorico((data ?? []) as unknown as UploadHistoricoRow[])
     } catch {
       setHistorico([])
     } finally {

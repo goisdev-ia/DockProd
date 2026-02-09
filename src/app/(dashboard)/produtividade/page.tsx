@@ -85,8 +85,8 @@ export default function ProdutividadePage() {
   const [totalPaginas, setTotalPaginas] = useState(1)
   const registrosPorPagina = 50
   
-  const [colaboradores, setColaboradores] = useState<any[]>([])
-  const [filiais, setFiliais] = useState<any[]>([])
+  const [colaboradores, setColaboradores] = useState<{ id: string; nome: string; matricula?: string; [key: string]: unknown }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string; [key: string]: unknown }[]>([])
   const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
   
   // Filtros
@@ -139,14 +139,14 @@ export default function ProdutividadePage() {
     const [h1, m1] = hi.split(':').map(Number)
     const [h2, m2] = hf.split(':').map(Number)
     
-    let minutosIniciais = h1 * 60 + m1
+    const minutosIniciais = h1 * 60 + m1
     let minutosFinais = h2 * 60 + m2
-    
+
     // Se hora final é menor que inicial, houve virada de dia
     if (minutosFinais < minutosIniciais) {
       minutosFinais += 24 * 60 // Adiciona 24 horas em minutos
     }
-    
+
     const diferencaMinutos = minutosFinais - minutosIniciais
     const horasDecimais = diferencaMinutos / 60
     
@@ -238,7 +238,7 @@ export default function ProdutividadePage() {
   // Quando o usuário logado E as filiais estiverem carregados, fixar o filtro
   useEffect(() => {
     if (usuarioLogado?.tipo === 'colaborador' && usuarioLogado.id_filial && filiais.length > 0) {
-      const filialObj = filiais.find((f: any) => f.id === usuarioLogado.id_filial)
+      const filialObj = filiais.find((f) => f.id === usuarioLogado.id_filial)
       if (filialObj) {
         setFiltroFilial(filialObj.nome)
       }
@@ -527,10 +527,10 @@ export default function ProdutividadePage() {
       ? (() => {
           const [h1, m1] = horaInicial.split(':').map(Number)
           const [h2, m2] = horaFinal.split(':').map(Number)
-          
-          let minutosIniciais = h1 * 60 + m1
+
+          const minutosIniciais = h1 * 60 + m1
           let minutosFinais = h2 * 60 + m2
-          
+
           // Se hora final é menor que inicial, houve virada de dia
           if (minutosFinais < minutosIniciais) {
             minutosFinais += 24 * 60 // Adiciona 24 horas em minutos
@@ -578,10 +578,10 @@ export default function ProdutividadePage() {
       if (horaInicial && horaFinal) {
         const [h1, m1] = horaInicial.split(':').map(Number)
         const [h2, m2] = horaFinal.split(':').map(Number)
-        
-        let minutosIniciais = h1 * 60 + m1
+
+        const minutosIniciais = h1 * 60 + m1
         let minutosFinais = h2 * 60 + m2
-        
+
         // Se hora final é menor que inicial, houve virada de dia
         if (minutosFinais < minutosIniciais) {
           minutosFinais += 24 * 60 // Adiciona 24 horas em minutos

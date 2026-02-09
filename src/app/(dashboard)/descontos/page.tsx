@@ -24,8 +24,8 @@ interface DescontoExtendido extends Desconto {
 export default function DescontosPage() {
   const [descontos, setDescontos] = useState<DescontoExtendido[]>([])
   const [descontosFiltrados, setDescontosFiltrados] = useState<DescontoExtendido[]>([])
-  const [colaboradores, setColaboradores] = useState<any[]>([])
-  const [filiais, setFiliais] = useState<any[]>([])
+  const [colaboradores, setColaboradores] = useState<{ id: string; nome: string; matricula?: string; id_filial?: string }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
   const [loading, setLoading] = useState(true)
   const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
   
@@ -390,12 +390,13 @@ export default function DescontosPage() {
 
       setDialogAberto(false)
       carregarDados()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { code?: string; message?: string }
       console.error('Erro ao salvar:', error)
-      if (error?.code === '23505') {
+      if (err?.code === '23505') {
         alert('Já existe um desconto para este colaborador neste mês/ano')
-      } else if (error?.message) {
-        alert(`Erro ao salvar desconto: ${error.message}`)
+      } else if (err?.message) {
+        alert(`Erro ao salvar desconto: ${err.message}`)
       } else {
         alert('Erro ao salvar desconto. Verifique se você tem permissão para esta filial.')
       }

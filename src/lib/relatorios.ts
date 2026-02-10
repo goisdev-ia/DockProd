@@ -56,6 +56,28 @@ export interface EvolucaoTemporalRow {
   total_paletes: number
 }
 
+/** Linha de dados de produtividade para relatórios "Dados Gerais" (agrupado por id_carga_cliente). */
+export interface DadoProdutividadeRelatorio {
+  id_carga_cliente: string
+  carga: string
+  data_carga: string
+  filial: string
+  cliente: string
+  colaborador: string | null
+  hora_inicial: string | null
+  hora_final: string | null
+  peso_liquido_total: number
+  volume_total: number
+  paletes_total: number
+  tempo: number | null
+  kg_hs: number | null
+  vol_hs: number | null
+  plt_hs: number | null
+  erro_separacao: number
+  erro_entregas: number
+  observacao: string | null
+}
+
 function toISODate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
@@ -102,6 +124,85 @@ export async function fetchEvolucaoTemporal(
     total_volume: Number(r.total_volume ?? 0),
     total_paletes: Number(r.total_paletes ?? 0),
   }))
+}
+
+function mapRowToDadoProdutividadeRelatorio(r: Record<string, unknown>): DadoProdutividadeRelatorio {
+  return {
+    id_carga_cliente: String(r.id_carga_cliente ?? ''),
+    carga: String(r.carga ?? ''),
+    data_carga: r.data_carga != null ? String(r.data_carga).slice(0, 10) : '',
+    filial: String(r.filial ?? ''),
+    cliente: String(r.cliente ?? ''),
+    colaborador: r.colaborador != null ? String(r.colaborador) : null,
+    hora_inicial: r.hora_inicial != null ? String(r.hora_inicial).slice(0, 5) : null,
+    hora_final: r.hora_final != null ? String(r.hora_final).slice(0, 5) : null,
+    peso_liquido_total: Number(r.peso_liquido_total ?? 0),
+    volume_total: Number(r.volume_total ?? 0),
+    paletes_total: Number(r.paletes_total ?? 0),
+    tempo: r.tempo != null ? Number(r.tempo) : null,
+    kg_hs: r.kg_hs != null ? Number(r.kg_hs) : null,
+    vol_hs: r.vol_hs != null ? Number(r.vol_hs) : null,
+    plt_hs: r.plt_hs != null ? Number(r.plt_hs) : null,
+    erro_separacao: Number(r.erro_separacao ?? 0),
+    erro_entregas: Number(r.erro_entregas ?? 0),
+    observacao: r.observacao != null ? String(r.observacao) : null,
+  }
+}
+
+/** Filtros opcionais para relatórios Dados Gerais (mesmo padrão da tela Relatórios). */
+export interface FiltrosDadosGerais {
+  dataInicio?: string
+  dataFim?: string
+  id_filial?: string
+  id_colaborador?: string
+}
+
+const PAGE_SIZE_DADOS_GERAIS = 1000
+
+/** Busca registros de dados_produtividade (agrupados por id_carga_cliente) para relatórios Dados Gerais, com filtros opcionais. */
+export async function fetchAllDadosProdutividade(filtros?: FiltrosDadosGerais | null): Promise<DadoProdutividadeRelatorio[]> {
+  const supabase = createClient()
+  const all: DadoProdutividadeRelatorio[] = []
+  const hasFilters = filtros && (filtros.dataInicio ?? filtros.dataFim ?? filtros.id_filial ?? filtros.id_colaborador)
+
+  if (hasFilters) {
+    let offset = 0
+    let hasMore = true
+    while (hasMore) {
+      const { data: rows, error } = await supabase.rpc('get_produtividade_agrupado_filtrado', {
+        p_data_inicio: filtros?.dataInicio ?? null,
+        p_data_fim: filtros?.dataFim ?? null,
+        p_id_filial: filtros?.id_filial ?? null,
+        p_id_colaborador: filtros?.id_colaborador ?? null,
+        p_limit: PAGE_SIZE_DADOS_GERAIS,
+        p_offset: offset,
+      })
+      if (error) throw error
+      if (!rows || rows.length === 0) break
+      for (const r of rows as Record<string, unknown>[]) {
+        all.push(mapRowToDadoProdutividadeRelatorio(r))
+      }
+      if (rows.length < PAGE_SIZE_DADOS_GERAIS) hasMore = false
+      else offset += PAGE_SIZE_DADOS_GERAIS
+    }
+  } else {
+    let offset = 0
+    let hasMore = true
+    while (hasMore) {
+      const { data: rows, error } = await supabase.rpc('get_produtividade_agrupado_paginado', {
+        p_limit: PAGE_SIZE_DADOS_GERAIS,
+        p_offset: offset,
+      })
+      if (error) throw error
+      if (!rows || rows.length === 0) break
+      for (const r of rows as Record<string, unknown>[]) {
+        all.push(mapRowToDadoProdutividadeRelatorio(r))
+      }
+      if (rows.length < PAGE_SIZE_DADOS_GERAIS) hasMore = false
+      else offset += PAGE_SIZE_DADOS_GERAIS
+    }
+  }
+  return all
 }
 
 export async function fetchReportData(mesNome: string, ano: number) {

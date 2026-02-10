@@ -28,6 +28,7 @@ import {
 import { Edit, Trash2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsUpDown, Columns3 } from 'lucide-react'
 import { FilterToggle } from '@/components/FilterToggle'
 import { registrarLog } from '@/lib/logs'
+import { formatDateBR } from '@/lib/date-utils'
 
 const COLUNAS_PADRAO: (keyof DadoCarga)[] = [
   'id_carga_cliente', 'carga', 'data_carga', 'filial', 'cliente', 'colaborador',
@@ -77,9 +78,12 @@ interface DadoCarga {
   observacao: string | null
 }
 
+const PAGE_SIZE_FETCH = 1000
+
 export default function ProdutividadePage() {
   const [dados, setDados] = useState<DadoCarga[]>([])
   const [dadosFiltrados, setDadosFiltrados] = useState<DadoCarga[]>([])
+  const [totalCargas, setTotalCargas] = useState<number>(0)
   const [loading, setLoading] = useState(true)
   const [paginaAtual, setPaginaAtual] = useState(1)
   const [totalPaginas, setTotalPaginas] = useState(1)
@@ -192,7 +196,7 @@ export default function ProdutividadePage() {
     else {
       if (tempoCalc != null && tempo !== row.tempo)
         atualizarLinhaLocal(idCargaCliente, { tempo: tempoCalc, kg_hs: kgHs, vol_hs: volHs, plt_hs: pltHs })
-      registrarLog(supabase, 'Editou produtividade (carga)')
+      registrarLog(supabase, 'Editou produtividade (carga)', idCargaCliente)
     }
   }
 
@@ -286,46 +290,60 @@ export default function ProdutividadePage() {
     aplicarFiltros()
   }, [dados, filtroFilial, filtroColaborador, buscaDebounced, filtroDataInicio, filtroDataFim, clienteDebounced, filtroTempoMin, filtroTempoMax, filtroErrosSepMin, filtroErrosSepMax, filtroErrosEntMin, filtroErrosEntMax, filtroKgHsMin, filtroKgHsMax, filtroVolHsMin, filtroVolHsMax, filtroPltHsMin, filtroPltHsMax, idCargaDebounced, matriculaDebounced])
 
+  const mapRow = (r: Record<string, unknown>): DadoCarga => ({
+    id_carga_cliente: String(r.id_carga_cliente ?? ''),
+    carga: String(r.carga ?? ''),
+    data_carga: r.data_carga != null ? String(r.data_carga).slice(0, 10) : '',
+    filial: String(r.filial ?? ''),
+    cliente: String(r.cliente ?? ''),
+    colaborador: r.colaborador != null ? String(r.colaborador) : null,
+    hora_inicial: r.hora_inicial != null ? String(r.hora_inicial).slice(0, 5) : null,
+    hora_final: r.hora_final != null ? String(r.hora_final).slice(0, 5) : null,
+    peso_liquido_total: Number(r.peso_liquido_total ?? 0),
+    volume_total: Number(r.volume_total ?? 0),
+    paletes_total: Number(r.paletes_total ?? 0),
+    tempo: r.tempo != null ? Number(r.tempo) : null,
+    kg_hs: r.kg_hs != null ? Number(r.kg_hs) : null,
+    vol_hs: r.vol_hs != null ? Number(r.vol_hs) : null,
+    plt_hs: r.plt_hs != null ? Number(r.plt_hs) : null,
+    erro_separacao: Number(r.erro_separacao ?? 0),
+    erro_entregas: Number(r.erro_entregas ?? 0),
+    observacao: r.observacao != null ? String(r.observacao) : null
+  })
+
   const carregarDados = async () => {
     setLoading(true)
     try {
-      const { data: rows, error } = await supabase.rpc('get_produtividade_agrupado')
-
-      if (error) {
-        console.error('Erro ao carregar dados:', error)
-        return
-      }
-
-      if (rows && rows.length > 0) {
-        const mapRow = (r: Record<string, unknown>): DadoCarga => ({
-          id_carga_cliente: String(r.id_carga_cliente ?? ''),
-          carga: String(r.carga ?? ''),
-          data_carga: r.data_carga != null ? String(r.data_carga).slice(0, 10) : '',
-          filial: String(r.filial ?? ''),
-          cliente: String(r.cliente ?? ''),
-          colaborador: r.colaborador != null ? String(r.colaborador) : null,
-          hora_inicial: r.hora_inicial != null ? String(r.hora_inicial).slice(0, 5) : null,
-          hora_final: r.hora_final != null ? String(r.hora_final).slice(0, 5) : null,
-          peso_liquido_total: Number(r.peso_liquido_total ?? 0),
-          volume_total: Number(r.volume_total ?? 0),
-          paletes_total: Number(r.paletes_total ?? 0),
-          tempo: r.tempo != null ? Number(r.tempo) : null,
-          kg_hs: r.kg_hs != null ? Number(r.kg_hs) : null,
-          vol_hs: r.vol_hs != null ? Number(r.vol_hs) : null,
-          plt_hs: r.plt_hs != null ? Number(r.plt_hs) : null,
-          erro_separacao: Number(r.erro_separacao ?? 0),
-          erro_entregas: Number(r.erro_entregas ?? 0),
-          observacao: r.observacao != null ? String(r.observacao) : null
-        })
-
-        const ordenado = [...rows].sort(
-          (a: Record<string, unknown>, b: Record<string, unknown>) =>
-            String(b.carga).localeCompare(String(a.carga))
-        )
-        setDados(ordenado.map(mapRow))
+      const { data: countData, error: countError } = await supabase.rpc('get_produtividade_agrupado_count')
+      if (countError) {
+        console.error('Erro ao carregar total:', countError)
+        setTotalCargas(0)
       } else {
-        setDados([])
+        setTotalCargas(Number(countData ?? 0))
       }
+
+      const allRows: DadoCarga[] = []
+      let offset = 0
+      let hasMore = true
+      while (hasMore) {
+        const { data: rows, error } = await supabase.rpc('get_produtividade_agrupado_paginado', {
+          p_limit: PAGE_SIZE_FETCH,
+          p_offset: offset
+        })
+        if (error) {
+          console.error('Erro ao carregar dados:', error)
+          break
+        }
+        if (!rows || rows.length === 0) break
+        for (const r of rows as Record<string, unknown>[]) {
+          allRows.push(mapRow(r))
+        }
+        if (rows.length < PAGE_SIZE_FETCH) hasMore = false
+        else offset += PAGE_SIZE_FETCH
+      }
+
+      const ordenado = [...allRows].sort((a, b) => b.carga.localeCompare(a.carga))
+      setDados(ordenado)
     } catch (error) {
       console.error('Erro ao carregar dados:', error)
     } finally {
@@ -645,7 +663,7 @@ export default function ProdutividadePage() {
         .eq('id_carga_cliente', idExcluir)
 
       if (error) throw error
-      registrarLog(supabase, 'Deletou carga da produtividade')
+      registrarLog(supabase, 'Deletou carga da produtividade', idExcluir)
       carregarDados()
       setIdExcluir(null)
     } catch (error) {
@@ -730,7 +748,7 @@ export default function ProdutividadePage() {
                     <SelectValue placeholder="Todas" />
                   </SelectTrigger>
                   <SelectContent>
-                    {usuarioLogado?.tipo === 'admin' && (
+                    {(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && (
                       <SelectItem value="todas">Todas</SelectItem>
                     )}
                     {filiais.map(f => (
@@ -939,7 +957,9 @@ export default function ProdutividadePage() {
             <div>
               <CardTitle>Dados de Produtividade</CardTitle>
               <CardDescription>
-                {dadosFiltrados.length} carga(s) encontrada(s)
+                {contarFiltrosAtivos() > 0
+                  ? `${dadosFiltrados.length} carga(s) encontrada(s)`
+                  : `${totalCargas} carga(s) no total`}
               </CardDescription>
             </div>
             <DropdownMenu>
@@ -1131,7 +1151,7 @@ export default function ProdutividadePage() {
                         }
                         const isRight = ['peso_liquido_total', 'volume_total', 'paletes_total', 'kg_hs', 'vol_hs', 'plt_hs', 'tempo', 'erro_separacao', 'erro_entregas'].includes(col)
                         const cn = key === 'id_carga_cliente' ? 'font-mono text-xs' : key === 'carga' ? 'font-medium' : key === 'filial' || key === 'cliente' ? 'text-xs max-w-xs truncate' : isRight ? 'text-right' : ''
-                        const display = key === 'data_carga' && val ? new Date(String(val)).toLocaleDateString('pt-BR') : typeof val === 'number' && val != null ? (key === 'peso_liquido_total' || key === 'paletes_total' ? Number(val).toFixed(2) : key === 'volume_total' ? Number(val).toFixed(0) : key === 'kg_hs' || key === 'vol_hs' || key === 'plt_hs' ? (Number(val).toFixed(2) || '-') : String(val)) : val != null ? String(val) : '-'
+                        const display = key === 'data_carga' && val ? formatDateBR(String(val)) : typeof val === 'number' && val != null ? (key === 'peso_liquido_total' || key === 'paletes_total' ? Number(val).toFixed(2) : key === 'volume_total' ? Number(val).toFixed(0) : key === 'kg_hs' || key === 'vol_hs' || key === 'plt_hs' ? (Number(val).toFixed(2) || '-') : String(val)) : val != null ? String(val) : '-'
                         return (
                           <TableCell key={col} className={cn}>
                             {display}

@@ -1,7 +1,6 @@
-/* PickProd PWA Service Worker - cache estático, rede para API */
-const CACHE_NAME = 'pickprod-v2';
+/* PickProd PWA Service Worker - network-first para navegação, cache para estáticos */
+const CACHE_NAME = 'pickprod-v3';
 const STATIC_ASSETS = [
-  '/',
   '/manifest.json',
   '/backgroundpickprod2.png',
   '/pickprodlogo.png',
@@ -35,14 +34,30 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
   if (url.origin !== location.origin) return;
-  if (url.pathname.startsWith('/_next/') || url.pathname.startsWith('/api/') || request.method !== 'GET') {
+  if (request.method !== 'GET') return;
+  if (url.pathname.startsWith('/api/')) return;
+
+  var isNav = request.mode === 'navigate' || request.destination === 'document';
+
+  if (isNav) {
+    event.respondWith(
+      fetch(request).then(function (res) { return res; }).catch(function () {
+        return caches.match(request).then(function (cached) { return cached || new Response('', { status: 503, statusText: 'Service Unavailable' }); });
+      })
+    );
     return;
   }
+
+  if (url.pathname.startsWith('/_next/')) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
   event.respondWith(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.match(request).then((cached) => {
+    caches.open(CACHE_NAME).then(function (cache) {
+      return cache.match(request).then(function (cached) {
         if (cached) return cached;
-        return fetch(request).then((res) => {
+        return fetch(request).then(function (res) {
           if (res.ok && res.type === 'basic') cache.put(request, res.clone());
           return res;
         });

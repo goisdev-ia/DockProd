@@ -7,7 +7,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ScrollText, Loader2, ChevronLeft, ChevronRight, Filter } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { ScrollText, Loader2, ChevronLeft, ChevronRight, Filter, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 const PAGE_SIZE = 50
 
@@ -32,6 +41,8 @@ export default function LogsPage() {
   const [filtroIdCargaCliente, setFiltroIdCargaCliente] = useState('')
   const [filtroFilial, setFiltroFilial] = useState('')
   const [filtrosVisiveis, setFiltrosVisiveis] = useState(false)
+  const [dialogExcluirAberto, setDialogExcluirAberto] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
 
   const supabase = createClient()
 
@@ -80,6 +91,27 @@ export default function LogsPage() {
     carregarLogs()
   }, [paginaAtual])
 
+  const confirmarExcluirOldest = async () => {
+    setExcluindo(true)
+    try {
+      const res = await fetch('/api/logs/delete-oldest', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error || 'Erro ao excluir logs')
+        return
+      }
+      const deleted = typeof data.deleted === 'number' ? data.deleted : 0
+      toast.success(`${deleted} log(s) mais antigo(s) excluído(s).`)
+      setDialogExcluirAberto(false)
+      setPaginaAtual(1)
+      await carregarLogs()
+    } catch {
+      toast.error('Erro ao excluir logs')
+    } finally {
+      setExcluindo(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -90,19 +122,55 @@ export default function LogsPage() {
               Logs e Histórico
             </h1>
             <p className="text-muted-foreground">
-              Registro de ações realizadas no sistema (apenas admin)
+              Registro de ações realizadas no sistema (admin e colaborador)
             </p>
           </div>
-          <Button
-            variant={filtrosVisiveis ? "default" : "outline"}
-            onClick={() => setFiltrosVisiveis(!filtrosVisiveis)}
-            className="flex items-center gap-2"
-          >
-            <Filter className="h-4 w-4" />
-            {filtrosVisiveis ? 'Ocultar Filtros' : 'Mostrar Filtros'}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="destructive"
+              onClick={() => setDialogExcluirAberto(true)}
+              className="flex items-center gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              Excluir 1000 logs mais antigos
+            </Button>
+            <Button
+              variant={filtrosVisiveis ? "default" : "outline"}
+              onClick={() => setFiltrosVisiveis(!filtrosVisiveis)}
+              className="flex items-center gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              {filtrosVisiveis ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+            </Button>
+          </div>
         </div>
       </div>
+
+      <Dialog open={dialogExcluirAberto} onOpenChange={setDialogExcluirAberto}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir logs mais antigos</DialogTitle>
+            <DialogDescription>
+              Deseja excluir os 1000 registros de log mais antigos? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogExcluirAberto(false)} disabled={excluindo}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={confirmarExcluirOldest} disabled={excluindo}>
+              {excluindo ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Excluindo...
+                </>
+              ) : (
+                'Confirmar'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {filtrosVisiveis && (
         <Card>

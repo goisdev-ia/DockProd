@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { registrarLog } from '@/lib/logs'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -88,6 +89,8 @@ export default function LoginPage() {
           }
         }
       }
+
+      await registrarLog(supabase, 'LOGIN')
 
       // 5. Redirecionar baseado no tipo de usuário
       if (usuario.tipo === 'novo') {

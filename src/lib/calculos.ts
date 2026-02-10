@@ -89,13 +89,14 @@ export function calcularProdutividadeBruta(
   }
 }
 
-// Calcular percentual de erros
+// Calcular percentual de erros (percentuais em decimal, ex.: 0.01 = 1%)
 export function calcularPercentualErros(
   erroSeparacao: number,
-  erroEntregas: number
+  erroEntregas: number,
+  erroSeparacaoPercent: number = 0.01,
+  erroEntregasPercent: number = 0.01
 ): number {
-  // 1% de desconto para cada erro
-  const percentualErros = (erroSeparacao * 0.01) + (erroEntregas * 0.01)
+  const percentualErros = (erroSeparacao * erroSeparacaoPercent) + (erroEntregas * erroEntregasPercent)
   return Math.min(percentualErros, 1) // Máximo 100%
 }
 

@@ -13,6 +13,7 @@ export default function PerfilPage() {
     const [perfil, setPerfil] = useState<{ nome: string; email: string; tipo: string; avatar_url: string | null } | null>(null)
     const [uploadando, setUploadando] = useState(false)
     const [loading, setLoading] = useState(true)
+    const [loginStats, setLoginStats] = useState<{ total_logins: number; ultimo_login: string | null } | null>(null)
 
     const supabase = createClient()
 
@@ -34,6 +35,13 @@ export default function PerfilPage() {
 
             if (data) {
                 setPerfil(data)
+            }
+
+            const { data: stats } = await supabase.rpc('get_usuario_login_stats', { p_user_id: user.id })
+            if (stats && typeof stats === 'object' && 'total_logins' in stats) {
+                const total = Number((stats as { total_logins?: number }).total_logins ?? 0)
+                const ultimo = (stats as { ultimo_login?: string }).ultimo_login ?? null
+                setLoginStats({ total_logins: total, ultimo_login: ultimo })
             }
         } catch (error) {
             console.error('Erro ao carregar perfil:', error)
@@ -171,6 +179,20 @@ export default function PerfilPage() {
                             <p className="text-xs text-muted-foreground capitalize bg-secondary px-3 py-1 rounded-full inline-block">
                                 {perfil?.tipo}
                             </p>
+                        </div>
+
+                        {/* Último login e total de logins */}
+                        <div className="flex flex-wrap justify-center gap-6 text-sm text-muted-foreground border-t pt-4 w-full max-w-xs">
+                            <span>
+                                <strong className="text-foreground">Último login:</strong>{' '}
+                                {loginStats?.ultimo_login
+                                    ? new Date(loginStats.ultimo_login).toLocaleString('pt-BR')
+                                    : 'Nunca'}
+                            </span>
+                            <span>
+                                <strong className="text-foreground">Total de logins:</strong>{' '}
+                                {loginStats?.total_logins ?? 0}
+                            </span>
                         </div>
 
                         {/* Upload Button */}

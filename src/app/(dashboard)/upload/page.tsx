@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -133,20 +133,62 @@ export default function UploadPage() {
   const [historicoLoading, setHistoricoLoading] = useState(false)
   const [paginaAtual, setPaginaAtual] = useState(1)
   const [totalRegistros, setTotalRegistros] = useState(0)
+  const [filtroBusca, setFiltroBusca] = useState('')
+  const [filtroBuscaDebounced, setFiltroBuscaDebounced] = useState('')
+  const [filtroDataInicio, setFiltroDataInicio] = useState('')
+  const [filtroDataFim, setFiltroDataFim] = useState('')
 
   const totalPaginas = Math.max(1, Math.ceil(totalRegistros / LIMITE_POR_PAGINA))
   const supabase = createClient()
 
-  const carregarHistorico = async (pagina: number) => {
+  useEffect(() => {
+    const t = setTimeout(() => setFiltroBuscaDebounced(filtroBusca), 300)
+    return () => clearTimeout(t)
+  }, [filtroBusca])
+
+  const carregarHistorico = useCallback(async (pagina: number) => {
+    const supabase = createClient()
     setHistoricoLoading(true)
     try {
       const from = (pagina - 1) * LIMITE_POR_PAGINA
       const to = pagina * LIMITE_POR_PAGINA - 1
-      const { data, error, count } = await supabase
+      const q = filtroBuscaDebounced.trim()
+      const numQ = q ? parseInt(q, 10) : NaN
+      const isNum = !Number.isNaN(numQ) && String(numQ) === q
+
+      let query = supabase
         .from('upload_historico')
         .select('id, created_at, nome_arquivo, linhas_processadas, menor_carga, maior_carga, usuarios(nome, email)', { count: 'exact' })
         .order('created_at', { ascending: false })
-        .range(from, to)
+
+      if (filtroDataInicio) {
+        query = query.gte('created_at', `${filtroDataInicio}T00:00:00.000Z`)
+      }
+      if (filtroDataFim) {
+        query = query.lte('created_at', `${filtroDataFim}T23:59:59.999Z`)
+      }
+
+      if (q) {
+        const orParts: string[] = [
+          `nome_arquivo.ilike.%${q}%`,
+          `menor_carga.ilike.%${q}%`,
+          `maior_carga.ilike.%${q}%`,
+        ]
+        if (isNum) {
+          orParts.push(`linhas_processadas.eq.${numQ}`)
+        }
+        const { data: usuariosMatch } = await supabase
+          .from('usuarios')
+          .select('id')
+          .or(`nome.ilike.%${q}%,email.ilike.%${q}%`)
+        const ids = (usuariosMatch ?? []).map((u: { id: string }) => u.id)
+        if (ids.length > 0) {
+          orParts.push(`id_usuario.in.(${ids.join(',')})`)
+        }
+        query = query.or(orParts.join(','))
+      }
+
+      const { data, error, count } = await query.range(from, to)
       if (error) throw error
       setHistorico((data ?? []) as unknown as UploadHistoricoRow[])
       setTotalRegistros(typeof count === 'number' ? count : 0)
@@ -156,11 +198,24 @@ export default function UploadPage() {
     } finally {
       setHistoricoLoading(false)
     }
-  }
+  }, [filtroBuscaDebounced, filtroDataInicio, filtroDataFim])
 
   useEffect(() => {
-    carregarHistorico(1)
-  }, [])
+    carregarHistorico(paginaAtual)
+  }, [paginaAtual, carregarHistorico])
+
+  useEffect(() => {
+    setPaginaAtual(1)
+  }, [filtroBuscaDebounced, filtroDataInicio, filtroDataFim])
+
+  const limparFiltrosHistorico = () => {
+    setFiltroBusca('')
+    setFiltroDataInicio('')
+    setFiltroDataFim('')
+    setPaginaAtual(1)
+  }
+
+  const filtrosHistoricoAtivos = (filtroBuscaDebounced ? 1 : 0) + (filtroDataInicio ? 1 : 0) + (filtroDataFim ? 1 : 0)
 
   const processarArquivo = async (file: File) => {
     setErro('')
@@ -516,6 +571,48 @@ export default function UploadPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            <div className="flex-1 flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[180px]">
+                <Label htmlFor="filtro-busca-historico" className="text-xs text-muted-foreground">Busca</Label>
+                <Input
+                  id="filtro-busca-historico"
+                  placeholder="Arquivo, linhas, usuário, carga..."
+                  value={filtroBusca}
+                  onChange={(e) => setFiltroBusca(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <div>
+                <Label htmlFor="filtro-data-inicio" className="text-xs text-muted-foreground">Data início</Label>
+                <Input
+                  id="filtro-data-inicio"
+                  type="date"
+                  value={filtroDataInicio}
+                  onChange={(e) => setFiltroDataInicio(e.target.value)}
+                  className="h-9 w-[140px]"
+                />
+              </div>
+              <div>
+                <Label htmlFor="filtro-data-fim" className="text-xs text-muted-foreground">Data fim</Label>
+                <Input
+                  id="filtro-data-fim"
+                  type="date"
+                  value={filtroDataFim}
+                  onChange={(e) => setFiltroDataFim(e.target.value)}
+                  className="h-9 w-[140px]"
+                />
+              </div>
+            </div>
+            {filtrosHistoricoAtivos > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">{filtrosHistoricoAtivos} filtro(s) ativo(s)</span>
+                <Button type="button" variant="outline" size="sm" onClick={limparFiltrosHistorico}>
+                  Limpar filtros
+                </Button>
+              </div>
+            )}
+          </div>
           {historicoLoading ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

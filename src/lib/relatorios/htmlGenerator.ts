@@ -1,4 +1,5 @@
 import type { FechamentoLinha, EvolucaoTemporalRow } from '../relatorios'
+import { filterOutNaoInformado } from '../nao-informado'
 
 interface HtmlOptions {
   mesNome: string
@@ -69,6 +70,7 @@ export function gerarRelatorioHTML(
   options: HtmlOptions,
   evolucaoTemporal: EvolucaoTemporalRow[] = []
 ): string {
+  data = filterOutNaoInformado(data, (r) => r.colaborador_nome)
   const { mesNome, ano, filial, usuario, baseUrl } = options
   const logoUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}/pickprodlogo.png` : '/pickprodlogo.png'
 

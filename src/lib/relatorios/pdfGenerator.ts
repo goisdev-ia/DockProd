@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { FechamentoLinha } from '../relatorios'
+import type { FechamentoLinha, DadoProdutividadeRelatorio } from '../relatorios'
+import { formatDateBR } from '@/lib/date-utils'
 
 interface PdfOptions {
   mesNome: string
@@ -380,5 +381,104 @@ export async function gerarRelatorioPDF(data: FechamentoLinha[], options: PdfOpt
 
   addFooter()
 
+  return doc.output('blob')
+}
+
+export interface PdfOptionsDadosGerais {
+  usuario?: string
+}
+
+export async function gerarRelatorioPDFDadosGerais(
+  data: DadoProdutividadeRelatorio[],
+  options: PdfOptionsDadosGerais = {}
+): Promise<Blob> {
+  const { usuario } = options
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 10
+
+  const addFooter = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pageCount = (doc as any).internal.getNumberOfPages()
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i)
+      doc.setFontSize(7)
+      doc.setTextColor(120)
+      doc.text(
+        `PickProd - Relatório Dados Gerais - Gerado em ${new Date().toLocaleString('pt-BR')} | Página ${i} de ${pageCount}`,
+        pageWidth / 2,
+        pageHeight - 5,
+        { align: 'center' }
+      )
+    }
+  }
+
+  doc.setFillColor(34, 139, 34)
+  doc.rect(0, 0, pageWidth, 20, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(16)
+  doc.setFont('helvetica', 'bold')
+  doc.text('PickProd - Relatório Dados Gerais (Produtividade)', margin, 10)
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.text(`Usuário: ${usuario || '-'}  |  Gerado: ${new Date().toLocaleString('pt-BR')}  |  ${data.length} registro(s)`, margin, 16)
+
+  const yPos = 26
+
+  const head = [
+    'ID Carga',
+    'Carga',
+    'Data',
+    'Filial',
+    'Cliente',
+    'Colaborador',
+    'Hora Inic.',
+    'Hora Fim',
+    'Tempo',
+    'Erros Sep.',
+    'Erros Ent.',
+    'Observação',
+    'Peso',
+    'Volume',
+    'Paletes',
+    'Kg/Hs',
+    'Vol/Hs',
+    'Plt/Hs',
+  ]
+  const body = data.map((r) => [
+    r.id_carga_cliente,
+    r.carga,
+    formatDateBR(r.data_carga),
+    r.filial,
+    (r.cliente ?? '').slice(0, 20),
+    r.colaborador ?? '',
+    r.hora_inicial ?? '',
+    r.hora_final ?? '',
+    r.tempo != null ? fmt(r.tempo) : '',
+    String(r.erro_separacao),
+    String(r.erro_entregas),
+    (r.observacao ?? '').slice(0, 15),
+    fmt(r.peso_liquido_total),
+    fmt(r.volume_total),
+    fmt(r.paletes_total),
+    r.kg_hs != null ? fmt(r.kg_hs) : '',
+    r.vol_hs != null ? fmt(r.vol_hs) : '',
+    r.plt_hs != null ? fmt(r.plt_hs) : '',
+  ])
+
+  autoTable(doc, {
+    startY: yPos,
+    head: [head],
+    body,
+    theme: 'grid',
+    headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 6, font: 'helvetica' },
+    bodyStyles: { fontSize: 5.5, font: 'helvetica', textColor: [0, 0, 0] },
+    alternateRowStyles: { fillColor: [240, 253, 244] },
+    margin: { left: margin, right: margin },
+    tableWidth: 'auto',
+  })
+
+  addFooter()
   return doc.output('blob')
 }

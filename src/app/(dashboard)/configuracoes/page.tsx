@@ -61,6 +61,19 @@ export default function ConfiguracoesPage() {
   const [perfilUsuario, setPerfilUsuario] = useState<{ nome: string; email: string; avatar_url: string | null } | null>(null)
   const [uploadandoAvatar, setUploadandoAvatar] = useState(false)
 
+  // Regras de descontos (%)
+  const [dialogRegrasDescontosAberto, setDialogRegrasDescontosAberto] = useState(false)
+  const [salvandoRegrasDescontos, setSalvandoRegrasDescontos] = useState(false)
+  const [regrasDescontos, setRegrasDescontos] = useState({
+    atestadoPercent: 100,
+    faltaInjustificadaPercent: 100,
+    advertenciaPercent: 50,
+    feriasPercent: 100,
+    suspensaoPercent: 100,
+    erroSeparacaoPercent: 1,
+    erroEntregasPercent: 1,
+  })
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -246,6 +259,77 @@ export default function ConfiguracoesPage() {
       toast.error('Erro ao salvar meta')
     } finally {
       setSalvandoMeta(false)
+    }
+  }
+
+  const carregarRegrasDescontos = useCallback(async () => {
+    const { data } = await supabase.from('configuracoes').select('valor').eq('chave', 'regras_descontos').single()
+    if (!data?.valor) return
+    const v = data.valor as {
+      atestado?: { percent?: number }[]
+      falta_injustificada_percent?: number
+      advertencia_percent?: number
+      ferias_percent?: number
+      suspensao_percent?: number
+      erro_separacao_percent?: number
+      erro_entregas_percent?: number
+    }
+    const toPct = (n: number | undefined) => (n != null ? Math.round(Number(n) * 100) : 100)
+    const atestadoMax = Array.isArray(v.atestado) && v.atestado.length > 0
+      ? Math.max(...v.atestado.map((t) => (t.percent != null ? Number(t.percent) * 100 : 100)))
+      : 100
+    setRegrasDescontos({
+      atestadoPercent: atestadoMax,
+      faltaInjustificadaPercent: toPct(v.falta_injustificada_percent),
+      advertenciaPercent: toPct(v.advertencia_percent),
+      feriasPercent: toPct(v.ferias_percent),
+      suspensaoPercent: toPct(v.suspensao_percent),
+      erroSeparacaoPercent: toPct(v.erro_separacao_percent) || 1,
+      erroEntregasPercent: toPct(v.erro_entregas_percent) || 1,
+    })
+  }, [supabase])
+
+  const abrirDialogRegrasDescontos = async () => {
+    await carregarRegrasDescontos()
+    setDialogRegrasDescontosAberto(true)
+  }
+
+  const salvarRegrasDescontos = async () => {
+    const { atestadoPercent, faltaInjustificadaPercent, advertenciaPercent, feriasPercent, suspensaoPercent, erroSeparacaoPercent, erroEntregasPercent } = regrasDescontos
+    if ([atestadoPercent, faltaInjustificadaPercent, advertenciaPercent, feriasPercent, suspensaoPercent, erroSeparacaoPercent, erroEntregasPercent].some((p) => p < 0 || p > 100)) {
+      toast.error('Percentuais devem estar entre 0 e 100')
+      return
+    }
+    setSalvandoRegrasDescontos(true)
+    try {
+      const { data: existing } = await supabase.from('configuracoes').select('valor').eq('chave', 'regras_descontos').single()
+      const current = (existing?.valor as Record<string, unknown>) ?? {}
+      const atestadoArray = Array.isArray(current.atestado) ? (current.atestado as { percent?: number; ate_dias?: number; acima_dias?: number }[]) : [
+        { percent: 0.25, ate_dias: 2 }, { percent: 0.5, ate_dias: 5 }, { percent: 0.7, ate_dias: 7 }, { percent: 1, acima_dias: 7 },
+      ]
+      const updatedAtestado = atestadoArray.map((t, i) =>
+        i === atestadoArray.length - 1 ? { ...t, percent: atestadoPercent / 100 } : t
+      )
+      const valor = {
+        ...current,
+        atestado: updatedAtestado,
+        falta_injustificada_percent: faltaInjustificadaPercent / 100,
+        advertencia_percent: advertenciaPercent / 100,
+        ferias_percent: feriasPercent / 100,
+        suspensao_percent: suspensaoPercent / 100,
+        erro_separacao_percent: erroSeparacaoPercent / 100,
+        erro_entregas_percent: erroEntregasPercent / 100,
+      }
+      const { error } = await supabase.from('configuracoes').update({ valor, updated_at: new Date().toISOString() }).eq('chave', 'regras_descontos')
+      if (error) throw error
+      registrarLog(supabase, 'Alterou regras de descontos (%)')
+      toast.success('Regras de descontos salvas')
+      setDialogRegrasDescontosAberto(false)
+    } catch (e) {
+      console.error(e)
+      toast.error('Erro ao salvar regras de descontos')
+    } finally {
+      setSalvandoRegrasDescontos(false)
     }
   }
 
@@ -671,6 +755,16 @@ export default function ConfiguracoesPage() {
                     Editar Meta
                   </Button>
                 </div>
+                <div className="p-4 border rounded-lg">
+                  <h3 className="font-semibold mb-2">Regras de descontos (%)</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Percentuais para atestado, falta injustificada, advertência, férias, suspensão, erros separação e entregas
+                  </p>
+                  <Button variant="outline" onClick={abrirDialogRegrasDescontos}>
+                    <SettingsIcon className="w-4 h-4 mr-2" />
+                    Editar regras de descontos
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -888,6 +982,101 @@ export default function ConfiguracoesPage() {
           </DialogContent>
         )}
       </Dialog >
+
+      {/* Dialog Editar Regras de Descontos (%) */}
+      <Dialog open={dialogRegrasDescontosAberto} onOpenChange={setDialogRegrasDescontosAberto}>
+        {dialogRegrasDescontosAberto && (
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Editar regras de descontos (%)</DialogTitle>
+              <DialogDescription>
+                Percentuais aplicados sobre a produtividade. Valores entre 0 e 100.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Atestado % (máx.)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={regrasDescontos.atestadoPercent}
+                    onChange={(e) => setRegrasDescontos((r) => ({ ...r, atestadoPercent: Number(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Falta injustificada %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={regrasDescontos.faltaInjustificadaPercent}
+                    onChange={(e) => setRegrasDescontos((r) => ({ ...r, faltaInjustificadaPercent: Number(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Advertência %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={regrasDescontos.advertenciaPercent}
+                    onChange={(e) => setRegrasDescontos((r) => ({ ...r, advertenciaPercent: Number(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Férias %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={regrasDescontos.feriasPercent}
+                    onChange={(e) => setRegrasDescontos((r) => ({ ...r, feriasPercent: Number(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Suspensão %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={regrasDescontos.suspensaoPercent}
+                    onChange={(e) => setRegrasDescontos((r) => ({ ...r, suspensaoPercent: Number(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Erros separação %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={regrasDescontos.erroSeparacaoPercent}
+                    onChange={(e) => setRegrasDescontos((r) => ({ ...r, erroSeparacaoPercent: Number(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Erros entregas %</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={regrasDescontos.erroEntregasPercent}
+                    onChange={(e) => setRegrasDescontos((r) => ({ ...r, erroEntregasPercent: Number(e.target.value) || 0 }))}
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDialogRegrasDescontosAberto(false)}>Cancelar</Button>
+              <Button onClick={salvarRegrasDescontos} disabled={salvandoRegrasDescontos} className="bg-green-600 hover:bg-green-700">
+                {salvandoRegrasDescontos ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Salvar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
 
       {/* Dialog Editar Regras */}
       < Dialog open={dialogRegrasAberto} onOpenChange={setDialogRegrasAberto} >

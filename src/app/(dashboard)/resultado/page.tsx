@@ -23,6 +23,7 @@ import {
 } from '@/lib/calculos'
 import { getDatasPorMesAno, toISODate } from '@/lib/dashboard-filters'
 import { registrarLog } from '@/lib/logs'
+import { filterOutNaoInformado } from '@/lib/nao-informado'
 import type { Fechamento } from '@/types/database'
 
 interface FechamentoExtendido extends Fechamento {
@@ -37,6 +38,7 @@ export default function ResultadoPage() {
   const [loading, setLoading] = useState(true)
   const [calculando, setCalculando] = useState(false)
   const [regrasCalculo, setRegrasCalculo] = useState<RegrasCalculo | null>(null)
+  const [regrasDescontosErros, setRegrasDescontosErros] = useState<{ erro_separacao_percent?: number; erro_entregas_percent?: number } | null>(null)
 
   // Paginação
   const [paginaAtual, setPaginaAtual] = useState(1)
@@ -164,7 +166,7 @@ export default function ResultadoPage() {
 
   // Aplicar filtros quando mudarem (usa valores aplicados/debounced nos numéricos)
   const aplicarFiltros = useCallback(() => {
-    let filtrados = [...fechamentos]
+    let filtrados = filterOutNaoInformado([...fechamentos], (f) => f.colaborador_nome)
 
     if (filtroColaborador && filtroColaborador !== 'todos') {
       filtrados = filtrados.filter(f => f.id_colaborador === filtroColaborador)
@@ -266,7 +268,8 @@ export default function ResultadoPage() {
           'regras_kg_hora',
           'regras_vol_hora',
           'regras_plt_hora',
-          'percentuais_metricas'
+          'percentuais_metricas',
+          'regras_descontos',
         ])
 
       if (data) {
@@ -305,6 +308,13 @@ export default function ResultadoPage() {
           },
         }
         setRegrasCalculo(regras)
+      }
+      const rd = data?.find((c) => c.chave === 'regras_descontos')?.valor as { erro_separacao_percent?: number; erro_entregas_percent?: number } | undefined
+      if (rd) {
+        setRegrasDescontosErros({
+          erro_separacao_percent: rd.erro_separacao_percent ?? 0.01,
+          erro_entregas_percent: rd.erro_entregas_percent ?? 0.01,
+        })
       }
     } catch (error) {
       console.error('Erro ao carregar regras:', error)
@@ -464,20 +474,24 @@ export default function ResultadoPage() {
 
         if (!dadosProducao || dadosProducao.length === 0) continue
 
-        // Totalizar dados (agregar erros por id_carga_cliente para evitar duplicação)
+        // Totalizar dados (agregar por id_carga_cliente para evitar duplicação: tempo e erros são por carga, não por linha)
         const pesoLiquidoTotal = dadosProducao.reduce((sum, d) => sum + (d.peso_liquido || 0), 0)
         const volumeTotal = dadosProducao.reduce((sum, d) => sum + (d.qtd_venda || 0), 0)
         const paletesTotal = dadosProducao.reduce((sum, d) => sum + (d.paletes || 0), 0)
-        const tempoTotal = dadosProducao.reduce((sum, d) => sum + (d.tempo || 0), 0)
+        const tempoPorCarga = new Map<string, number>()
         const errosPorCarga = new Map<string, { sep: number; ent: number }>()
         for (const d of dadosProducao) {
           const key = String(d.id_carga_cliente ?? '')
+          const t = Number(d.tempo ?? 0)
+          const curTempo = tempoPorCarga.get(key) ?? 0
+          if (t > curTempo) tempoPorCarga.set(key, t)
           const cur = errosPorCarga.get(key) ?? { sep: 0, ent: 0 }
           errosPorCarga.set(key, {
             sep: Math.max(cur.sep, Number(d.erro_separacao ?? 0)),
             ent: Math.max(cur.ent, Number(d.erro_entregas ?? 0))
           })
         }
+        const tempoTotal = [...tempoPorCarga.values()].reduce((s, t) => s + t, 0)
         const erroSeparacaoTotal = [...errosPorCarga.values()].reduce((s, c) => s + c.sep, 0)
         const erroEntregasTotal = [...errosPorCarga.values()].reduce((s, c) => s + c.ent, 0)
 
@@ -494,8 +508,13 @@ export default function ResultadoPage() {
           produtividade_bruta
         } = calcularProdutividadeBruta(kgHs, volHs, pltHs, regrasCalculo)
 
-        // Calcular percentual de erros
-        const percentualErros = calcularPercentualErros(erroSeparacaoTotal, erroEntregasTotal)
+        // Calcular percentual de erros (usa regras_descontos se carregado)
+        const percentualErros = calcularPercentualErros(
+          erroSeparacaoTotal,
+          erroEntregasTotal,
+          regrasDescontosErros?.erro_separacao_percent ?? 0.01,
+          regrasDescontosErros?.erro_entregas_percent ?? 0.01
+        )
 
         // Buscar descontos do colaborador
         const { data: desconto } = await supabase
@@ -701,7 +720,7 @@ export default function ResultadoPage() {
                   <SelectValue placeholder="Todas" />
                 </SelectTrigger>
                 <SelectContent>
-                  {usuarioLogado?.tipo === 'admin' && (
+                  {(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && (
                     <SelectItem value="todas">Todas</SelectItem>
                   )}
                   {filiais.map(f => (

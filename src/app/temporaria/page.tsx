@@ -83,7 +83,7 @@ export default function TemporariaPage() {
             <div className="text-sm text-gray-500 space-y-2">
               <p>Enquanto isso:</p>
               <ul className="list-disc list-inside text-left max-w-md mx-auto space-y-1">
-                <li>Entre em contato com seu supervisor</li>
+                <li>Entre em contato com o administrador do sistema</li>
                 <li>Aguarde a liberação do acesso</li>
                 <li>Em caso de dúvidas, contate o suporte</li>
               </ul>

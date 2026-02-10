@@ -13,12 +13,15 @@ import { toast } from 'sonner'
 import {
   fetchReportData,
   fetchEvolucaoTemporal,
+  fetchAllDadosProdutividade,
   exportCSV,
   type FechamentoLinha,
+  type FiltrosDadosGerais,
 } from '@/lib/relatorios'
-import { gerarRelatorioPDF } from '@/lib/relatorios/pdfGenerator'
+import { filterOutNaoInformado } from '@/lib/nao-informado'
+import { gerarRelatorioPDF, gerarRelatorioPDFDadosGerais } from '@/lib/relatorios/pdfGenerator'
 import { gerarRelatorioHTML } from '@/lib/relatorios/htmlGenerator'
-import { gerarRelatorioXLSX } from '@/lib/relatorios/xlsxGenerator'
+import { gerarRelatorioXLSX, gerarRelatorioXLSXDadosGerais } from '@/lib/relatorios/xlsxGenerator'
 import { gerarRelatorioWhatsApp, compartilharWhatsApp, copiarParaClipboard, type ResumoDescontoItem, type ErroSeparacaoItem, type ErroEntregaItem } from '@/lib/relatorios/whatsappGenerator'
 import { createClient } from '@/lib/supabase/client'
 import type { Desconto } from '@/types/database'
@@ -114,7 +117,7 @@ export default function RelatoriosPage() {
       )
     }
 
-    return data
+    return filterOutNaoInformado(data, (r) => r.colaborador_nome)
   }, [mesSelecionado, anoSelecionado, filtroColaborador, filtroFilial, filtroMatricula, filtroBusca])
 
   const filialNomeSelecionada = filiais.find(f => f.id === filtroFilial)?.nome || 'Todas'
@@ -296,6 +299,62 @@ export default function RelatoriosPage() {
     } catch (e) {
       console.error(e)
       setErro(e instanceof Error ? e.message : 'Erro ao gerar CSV')
+    } finally {
+      setLoading(false)
+      setLoadingType(null)
+    }
+  }
+
+  const getFiltrosDadosGerais = (): FiltrosDadosGerais | null => {
+    const filtros: FiltrosDadosGerais = {}
+    if (mesSelecionado && mesSelecionado !== 'todos') {
+      const { dataInicio, dataFim } = getIntervaloMes(mesSelecionado, anoSelecionado)
+      filtros.dataInicio = dataInicio
+      filtros.dataFim = dataFim
+    }
+    if (filtroFilial && filtroFilial !== 'todas') filtros.id_filial = filtroFilial
+    if (filtroColaborador && filtroColaborador !== 'todos') filtros.id_colaborador = filtroColaborador
+    return Object.keys(filtros).length > 0 ? filtros : null
+  }
+
+  const handleGerarPDFDadosGerais = async () => {
+    setLoading(true)
+    setLoadingType('pdf-dados-gerais')
+    setErro(null)
+    try {
+      const data = await fetchAllDadosProdutividade(getFiltrosDadosGerais())
+      if (data.length === 0) { setErro('Nenhum registro em dados de produtividade.'); return }
+      const pdfBlob = await gerarRelatorioPDFDadosGerais(data, { usuario: usuarioLogado?.nome })
+      const url = URL.createObjectURL(pdfBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `relatorio-dados-gerais-pickprod-${new Date().toISOString().slice(0, 10)}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('PDF Dados Gerais gerado com sucesso!')
+    } catch (e) {
+      console.error(e)
+      setErro(e instanceof Error ? e.message : 'Erro ao gerar PDF Dados Gerais')
+      toast.error('Erro ao gerar PDF Dados Gerais')
+    } finally {
+      setLoading(false)
+      setLoadingType(null)
+    }
+  }
+
+  const handleGerarXLSXDadosGerais = async () => {
+    setLoading(true)
+    setLoadingType('xlsx-dados-gerais')
+    setErro(null)
+    try {
+      const data = await fetchAllDadosProdutividade(getFiltrosDadosGerais())
+      if (data.length === 0) { setErro('Nenhum registro em dados de produtividade.'); return }
+      await gerarRelatorioXLSXDadosGerais(data, {})
+      toast.success('Excel Dados Gerais gerado com sucesso!')
+    } catch (e) {
+      console.error(e)
+      setErro(e instanceof Error ? e.message : 'Erro ao gerar Excel Dados Gerais')
+      toast.error('Erro ao gerar Excel Dados Gerais')
     } finally {
       setLoading(false)
       setLoadingType(null)
@@ -578,6 +637,38 @@ export default function RelatoriosPage() {
             {isLoadingType('csv') ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
             Exportar CSV
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Card: Dados Gerais (todos os registros de dados_produtividade, sem fechamento) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Relatórios Dados Gerais</CardTitle>
+          <CardDescription>
+            Exportar todos os registros de produtividade (não depende de fechamento, descontos ou resultados)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-4">
+            <Button
+              onClick={handleGerarPDFDadosGerais}
+              disabled={loading}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              {isLoadingType('pdf-dados-gerais') ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              RELATÓRIO PDF – DADOS GERAIS
+            </Button>
+            <Button
+              onClick={handleGerarXLSXDadosGerais}
+              disabled={loading}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              {isLoadingType('xlsx-dados-gerais') ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+              RELATÓRIO XLSX – DADOS GERAIS
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

@@ -627,9 +627,9 @@ export default function DashboardPage() {
                     <SelectValue placeholder="Selecione..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {usuarioLogado?.tipo === 'admin' && (
-                      <SelectItem value="todas">Todas as Filiais</SelectItem>
-                    )}
+{(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && (
+                    <SelectItem value="todas">Todas as Filiais</SelectItem>
+                  )}
                     {filiais.map(filial => (
                       <SelectItem key={filial.id} value={filial.id}>
                         {filial.nome}
@@ -1049,7 +1049,7 @@ export default function DashboardPage() {
               />
             </div>
           </CardHeader>
-          <CardContent className="h-80">
+          <CardContent className="h-50">
             {cargasPorColaborador.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados no mês selecionado</div>
             ) : (
@@ -1065,7 +1065,7 @@ export default function DashboardPage() {
                     nameKey="name"
                     cx="50%"
                     cy="50%"
-                    outerRadius={90}
+                    outerRadius={80}
                     label={({ name, value, percent }) => `${name}: ${value} (${((percent ?? 0) * 100).toFixed(0)}%)`}
                     labelLine={{ stroke: '#666', strokeWidth: 1 }}
                   >
@@ -1079,7 +1079,7 @@ export default function DashboardPage() {
                   <Tooltip formatter={(v: number | undefined) => `${v ?? 0} cargas`} />
                   <Legend
                     verticalAlign="bottom"
-                    height={36}
+                    height={8}
                     formatter={(value) => value}
                   />
                 </PieChart>

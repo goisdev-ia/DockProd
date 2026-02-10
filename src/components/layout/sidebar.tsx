@@ -36,6 +36,7 @@ import {
   Moon,
   User,
   ScrollText,
+  Target,
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -56,10 +57,11 @@ const navItems: NavItem[] = [
   { href: '/descontos', label: 'Descontos', icon: Percent, permitido: ['colaborador', 'admin'] },
   { href: '/resultado', label: 'Resultado', icon: Trophy, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/relatorios', label: 'Relatórios', icon: FileText, permitido: ['colaborador', 'admin', 'gestor'] },
+  { href: '/metas-e-regras', label: 'Metas e Regras', icon: Target, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/cadastros', label: 'Cadastros', icon: Users, permitido: ['colaborador', 'admin'] },
   { href: '/perfil', label: 'Perfil', icon: User, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/configuracoes', label: 'Configurações', icon: Settings, permitido: ['admin'] },
-  { href: '/logs', label: 'Logs e Histórico', icon: ScrollText, permitido: ['admin'] },
+  { href: '/logs', label: 'Logs e Histórico', icon: ScrollText, permitido: ['admin', 'colaborador'] },
 ]
 
 // Context para compartilhar estado da sidebar com o layout

@@ -1,10 +1,37 @@
 import ExcelJS from 'exceljs'
-import type { FechamentoLinha } from '../relatorios'
+import type { FechamentoLinha, DadoProdutividadeRelatorio } from '../relatorios'
+import { formatDateBR } from '@/lib/date-utils'
 
 interface XlsxOptions {
   mesNome: string
   ano: number
 }
+
+export interface XlsxOptionsDadosGerais {
+  /** Opcional; usado no nome do arquivo se não fornecido usa data atual */
+  dataGerado?: string
+}
+
+const DADOS_GERAIS_COLUMNS = [
+  { header: 'ID Carga', key: 'id_carga_cliente', width: 18 },
+  { header: 'Carga', key: 'carga', width: 12 },
+  { header: 'Data', key: 'data_carga_br', width: 12 },
+  { header: 'Filial', key: 'filial', width: 15 },
+  { header: 'Cliente', key: 'cliente', width: 22 },
+  { header: 'Colaborador', key: 'colaborador', width: 18 },
+  { header: 'Hora Inicial', key: 'hora_inicial', width: 12 },
+  { header: 'Hora Final', key: 'hora_final', width: 12 },
+  { header: 'Tempo', key: 'tempo', width: 10 },
+  { header: 'Erros Sep.', key: 'erro_separacao', width: 11 },
+  { header: 'Erros Ent.', key: 'erro_entregas', width: 11 },
+  { header: 'Observação', key: 'observacao', width: 18 },
+  { header: 'Peso Liq.', key: 'peso_liquido_total', width: 12 },
+  { header: 'Volume', key: 'volume_total', width: 12 },
+  { header: 'Paletes', key: 'paletes_total', width: 10 },
+  { header: 'Kg/Hs', key: 'kg_hs', width: 10 },
+  { header: 'Vol/Hs', key: 'vol_hs', width: 10 },
+  { header: 'Plt/Hs', key: 'plt_hs', width: 10 },
+]
 
 const UNIFIED_COLUMNS = [
   { header: 'Filial', key: 'filial_nome', width: 20 },
@@ -158,4 +185,101 @@ export async function gerarRelatorioXLSX(data: FechamentoLinha[], options: XlsxO
   const buffer = await workbook.xlsx.writeBuffer()
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   downloadBlob(blob, `relatorio-pickprod-${mesNome}-${ano}.xlsx`)
+}
+
+export async function gerarRelatorioXLSXDadosGerais(
+  data: DadoProdutividadeRelatorio[],
+  options: XlsxOptionsDadosGerais = {}
+): Promise<void> {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = 'PickProd'
+  workbook.created = new Date()
+
+  const sheet = workbook.addWorksheet('Dados Gerais', {
+    headerFooter: { firstHeader: 'PickProd - Relatório Dados Gerais (Produtividade)' },
+  })
+
+  sheet.columns = DADOS_GERAIS_COLUMNS.map(c => ({
+    header: c.header,
+    key: c.key,
+    width: c.width,
+  }))
+
+  const headerRow = sheet.getRow(1)
+  headerRow.values = DADOS_GERAIS_COLUMNS.map(c => c.header) as unknown as ExcelJS.CellValue[]
+  headerRow.height = 22
+  headerRow.eachCell((cell) => {
+    cell.font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FFFFFFFF' } }
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF228B22' } }
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = {
+      top: { style: 'thin', color: { argb: 'FF166534' } },
+      left: { style: 'thin', color: { argb: 'FF166534' } },
+      bottom: { style: 'thin', color: { argb: 'FF166534' } },
+      right: { style: 'thin', color: { argb: 'FF166534' } },
+    }
+  })
+
+  data.forEach((row) => {
+    sheet.addRow({
+      id_carga_cliente: row.id_carga_cliente,
+      carga: row.carga,
+      data_carga_br: formatDateBR(row.data_carga),
+      filial: row.filial,
+      cliente: row.cliente ?? '',
+      colaborador: row.colaborador ?? '',
+      hora_inicial: row.hora_inicial ?? '',
+      hora_final: row.hora_final ?? '',
+      tempo: row.tempo,
+      erro_separacao: row.erro_separacao,
+      erro_entregas: row.erro_entregas,
+      observacao: row.observacao ?? '',
+      peso_liquido_total: row.peso_liquido_total,
+      volume_total: row.volume_total,
+      paletes_total: row.paletes_total,
+      kg_hs: row.kg_hs,
+      vol_hs: row.vol_hs,
+      plt_hs: row.plt_hs,
+    })
+  })
+
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return
+    row.height = 18
+    row.eachCell((cell) => {
+      cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF000000' } }
+      cell.alignment = { vertical: 'middle' }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FFD1FAE5' } },
+        left: { style: 'thin', color: { argb: 'FFD1FAE5' } },
+        bottom: { style: 'thin', color: { argb: 'FFD1FAE5' } },
+        right: { style: 'thin', color: { argb: 'FFD1FAE5' } },
+      }
+    })
+    if (rowNumber % 2 === 0) {
+      row.eachCell((cell) => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0FDF4' } }
+      })
+    }
+  })
+
+  const numericKeys = ['peso_liquido_total', 'volume_total', 'paletes_total', 'tempo', 'kg_hs', 'vol_hs', 'plt_hs']
+  DADOS_GERAIS_COLUMNS.forEach((col, idx) => {
+    const colNum = idx + 1
+    if (numericKeys.includes(col.key)) {
+      sheet.getColumn(colNum).numFmt = '#,##0.00'
+    }
+  })
+
+  const lastCol = String.fromCharCode(64 + DADOS_GERAIS_COLUMNS.length)
+  const lastRow = data.length + 1
+  sheet.autoFilter = { from: 'A1', to: `${lastCol}${lastRow}` }
+  sheet.views = [{ state: 'frozen', ySplit: 1 }]
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const filename = options.dataGerado
+    ? `relatorio-dados-gerais-pickprod-${options.dataGerado}.xlsx`
+    : `relatorio-dados-gerais-pickprod-${new Date().toISOString().slice(0, 10)}.xlsx`
+  downloadBlob(blob, filename)
 }

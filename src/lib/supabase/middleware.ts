@@ -65,18 +65,22 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Rotas administrativas - apenas para admin (cadastros liberado para admin e colaborador)
-    const adminRoutes = ['/configuracoes', '/logs']
-    const isAdminRoute = adminRoutes.some(route => request.nextUrl.pathname.startsWith(route))
-    
-    if (isAdminRoute && usuario?.tipo !== 'admin') {
+    // Configurações: apenas admin
+    if (request.nextUrl.pathname.startsWith('/configuracoes') && usuario?.tipo !== 'admin') {
       const url = request.nextUrl.clone()
       url.pathname = '/dashboard'
       return NextResponse.redirect(url)
     }
 
-    // Gestor só pode acessar Dashboard, Resultado e Relatórios
-    const gestorAllowedRoutes = ['/dashboard', '/resultado', '/relatorios']
+    // Logs: admin ou colaborador
+    if (request.nextUrl.pathname.startsWith('/logs') && usuario?.tipo !== 'admin' && usuario?.tipo !== 'colaborador') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
+
+    // Gestor pode acessar Dashboard, Resultado, Relatórios, Perfil e Metas e Regras
+    const gestorAllowedRoutes = ['/dashboard', '/resultado', '/relatorios', '/perfil', '/metas-e-regras']
     const isGestorAllowedRoute = gestorAllowedRoutes.some(route => request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith(route + '/'))
     if (usuario?.tipo === 'gestor' && !isGestorAllowedRoute) {
       const url = request.nextUrl.clone()

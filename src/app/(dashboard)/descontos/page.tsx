@@ -71,6 +71,13 @@ export default function DescontosPage() {
   const [confirmSalvarOpen, setConfirmSalvarOpen] = useState(false)
   const [confirmExcluirOpen, setConfirmExcluirOpen] = useState(false)
   const [idExcluir, setIdExcluir] = useState<string | null>(null)
+  const [regrasDescontos, setRegrasDescontos] = useState<{
+    falta_injustificada_percent?: number
+    ferias_percent?: number
+    advertencia_percent?: number
+    suspensao_percent?: number
+    atestado?: { percent?: number; ate_dias?: number; acima_dias?: number }[]
+  } | null>(null)
 
   const supabase = createClient()
 
@@ -79,11 +86,25 @@ export default function DescontosPage() {
     'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
   ]
 
+  const carregarRegrasDescontos = async () => {
+    const { data } = await supabase.from('configuracoes').select('valor').eq('chave', 'regras_descontos').single()
+    if (data?.valor) {
+      setRegrasDescontos(data.valor as {
+        falta_injustificada_percent?: number
+        ferias_percent?: number
+        advertencia_percent?: number
+        suspensao_percent?: number
+        atestado?: { percent?: number; ate_dias?: number; acima_dias?: number }[]
+      })
+    }
+  }
+
   useEffect(() => {
     carregarUsuarioLogado()
     carregarDados()
     carregarColaboradores()
     carregarFiliais()
+    carregarRegrasDescontos()
   }, [])
 
   const carregarUsuarioLogado = async () => {
@@ -295,22 +316,36 @@ export default function DescontosPage() {
 
   const calcularPercentualTotal = () => {
     let percentual = 0
+    const r = regrasDescontos
+    const pctFalta = r?.falta_injustificada_percent != null ? r.falta_injustificada_percent * 100 : 100
+    const pctFerias = r?.ferias_percent != null ? r.ferias_percent * 100 : 100
+    const pctAdv = r?.advertencia_percent != null ? r.advertencia_percent * 100 : 50
+    const pctSusp = r?.suspensao_percent != null ? r.suspensao_percent * 100 : 100
 
-    // Regras de descontos baseadas nas imagens
-    if (faltaInjustificada > 0) percentual += 100
-    if (ferias) percentual += 100
-    if (advertencia > 0) percentual += advertencia * 50
-    if (suspensao > 0) percentual += suspensao * 100
+    if (faltaInjustificada > 0) percentual += faltaInjustificada * pctFalta
+    if (ferias) percentual += pctFerias
+    if (advertencia > 0) percentual += advertencia * pctAdv
+    if (suspensao > 0) percentual += suspensao * pctSusp
 
-    // Atestado
-    if (atestadoDias > 0) {
+    if (atestadoDias > 0 && Array.isArray(r?.atestado) && r.atestado.length > 0) {
+      const tiers = [...r.atestado].sort((a, b) => (a.ate_dias ?? a.acima_dias ?? 999) - (b.ate_dias ?? b.acima_dias ?? 999))
+      let tierPct = (tiers[tiers.length - 1]?.percent ?? 0) * 100
+      for (const t of tiers) {
+        const limite = t.ate_dias ?? t.acima_dias
+        if (limite != null && atestadoDias <= limite) {
+          tierPct = (t.percent ?? 0) * 100
+          break
+        }
+      }
+      percentual += tierPct
+    } else if (atestadoDias > 0) {
       if (atestadoDias <= 2) percentual += 25
       else if (atestadoDias <= 5) percentual += 50
       else if (atestadoDias <= 7) percentual += 70
       else percentual += 100
     }
 
-    return Math.min(percentual, 100) // Máximo 100%
+    return Math.min(percentual, 100)
   }
 
   const abrirNovo = () => {
@@ -478,7 +513,7 @@ export default function DescontosPage() {
                   <SelectValue placeholder="Todas" />
                 </SelectTrigger>
                 <SelectContent>
-                  {usuarioLogado?.tipo === 'admin' && (
+                  {(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && (
                     <SelectItem value="todas">Todas</SelectItem>
                   )}
                   {filiais.map(f => (

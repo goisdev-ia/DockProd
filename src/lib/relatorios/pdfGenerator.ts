@@ -1,6 +1,6 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { FechamentoLinha, DadoProdutividadeRelatorio } from '../relatorios'
+import type { FechamentoLinha, DadoProdutividadeRelatorio, DescontoReportRow, ResultadoReportRow, DadoColetaReportRow } from '../relatorios'
 import { formatDateBR } from '@/lib/date-utils'
 
 interface PdfOptions {
@@ -44,7 +44,13 @@ function getProdFinalFillColor(value: number): [number, number, number] {
   ]
 }
 
-export async function gerarRelatorioPDF(data: FechamentoLinha[], options: PdfOptions): Promise<Blob> {
+export async function gerarRelatorioPDF(
+  data: FechamentoLinha[],
+  options: PdfOptions,
+  descontosData: DescontoReportRow[] = [],
+  resultadosData: ResultadoReportRow[] = [],
+  dadosPorColetaData: DadoColetaReportRow[] = [],
+): Promise<Blob> {
   const { mesNome, ano, filial, usuario } = options
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const pageWidth = doc.internal.pageSize.getWidth()
@@ -157,78 +163,66 @@ export async function gerarRelatorioPDF(data: FechamentoLinha[], options: PdfOpt
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   yPos = (doc as any).lastAutoTable.finalY + 8
 
-  // --- Tabela 2: Resultado (Valores) ---
+  // --- Tabela 2: Indicadores por Colaborador ---
   if (yPos > pageHeight - 40) { doc.addPage(); yPos = 15; }
   doc.setTextColor(34, 139, 34)
   doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')
-  doc.text('2. Resultado (Valores)', margin, yPos)
+  doc.text('2. Indicadores por Colaborador', margin, yPos)
   yPos += 2
 
-  const totais2 = {
-    vlrKgHs: data.reduce((s, r) => s + r.valor_kg_hs, 0),
-    vlrVolHs: data.reduce((s, r) => s + r.valor_vol_hs, 0),
-    vlrPltHs: data.reduce((s, r) => s + r.valor_plt_hs, 0),
-    prodBruta: data.reduce((s, r) => s + r.produtividade_bruta, 0),
-    percErros: data.length > 0 ? data.reduce((s, r) => s + r.percentual_erros, 0) / data.length : 0,
-    percDescontos: data.length > 0 ? data.reduce((s, r) => s + r.percentual_descontos, 0) / data.length : 0,
-    vlrDescontos: data.reduce((s, r) => s + r.valor_descontos, 0),
-    prodFinal: data.reduce((s, r) => s + r.produtividade_final, 0),
-    meta: data.reduce((s, r) => s + r.meta, 0),
-    atingimento: data.length > 0 ? data.reduce((s, r) => s + r.percentual_atingimento, 0) / data.length : 0,
+  const indicadoresSource = resultadosData.length > 0 ? resultadosData : []
+  if (indicadoresSource.length > 0) {
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Mes/Ano', 'Filial', 'Colaborador', 'Plt/Hs', 'Acuracidade', 'Checklist', 'Perda']],
+      body: indicadoresSource.map(r => [
+        r.mes_ano_formatado,
+        r.filial_nome,
+        r.colaborador_nome,
+        fmt(r.plt_hs),
+        r.acuracidade != null ? `${fmt(r.acuracidade, 2)}%` : '—',
+        r.checklist != null ? `${fmt(r.checklist, 2)}%` : '—',
+        r.perda != null ? `${fmt(r.perda, 2)}%` : '—',
+      ]),
+      foot: [[
+        `TOTAL (${indicadoresSource.length} colab.)`,
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+      ]],
+      theme: 'grid',
+      headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, font: 'helvetica' },
+      bodyStyles: { fontSize: 6.5, font: 'helvetica', textColor: [0, 0, 0] },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      footStyles: { fillColor: [22, 101, 52], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+      margin: { left: margin, right: margin },
+    })
+  } else {
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Mes/Ano', 'Filial', 'Colaborador', 'Plt/Hs', 'Acuracidade', 'Checklist', 'Perda']],
+      body: data.map(r => [
+        mesFormatado,
+        r.filial_nome,
+        r.colaborador_nome,
+        fmt(r.plt_hs),
+        '—',
+        '—',
+        '—',
+      ]),
+      foot: [['TOTAL', '', `${data.length} colab.`, '', '', '', '']],
+      theme: 'grid',
+      headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, font: 'helvetica' },
+      bodyStyles: { fontSize: 6.5, font: 'helvetica', textColor: [0, 0, 0] },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      footStyles: { fillColor: [22, 101, 52], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+      margin: { left: margin, right: margin },
+    })
   }
-
-  const PROD_FINAL_COL_IDX_TABLE2 = 10
-  autoTable(doc, {
-    startY: yPos,
-    head: [['Mês', 'Filial', 'Colaborador', 'Vlr Kg/Hs', 'Vlr Vol/Hs', 'Vlr Plt/Hs', 'Prod. Bruta', '% Erros', '% Descontos', 'Vlr Descontos', 'Prod. Final R$', 'Meta', '% Ating.']],
-    body: data.map(r => [
-      mesFormatado,
-      r.filial_nome,
-      r.colaborador_nome,
-      fmt(r.valor_kg_hs),
-      fmt(r.valor_vol_hs),
-      fmt(r.valor_plt_hs),
-      fmt(r.produtividade_bruta),
-      `${fmt(r.percentual_erros, 1)}%`,
-      `${fmt(r.percentual_descontos, 1)}%`,
-      fmt(r.valor_descontos),
-      fmt(r.produtividade_final),
-      fmt(r.meta),
-      `${fmt(r.percentual_atingimento, 1)}%`,
-    ]),
-    foot: [[
-      'TOTAL',
-      '',
-      `${data.length} colab.`,
-      fmt(totais2.vlrKgHs),
-      fmt(totais2.vlrVolHs),
-      fmt(totais2.vlrPltHs),
-      fmt(totais2.prodBruta),
-      `${fmt(totais2.percErros, 1)}%`,
-      `${fmt(totais2.percDescontos, 1)}%`,
-      fmt(totais2.vlrDescontos),
-      fmt(totais2.prodFinal),
-      fmt(totais2.meta),
-      `${fmt(totais2.atingimento, 1)}%`,
-    ]],
-    theme: 'grid',
-    headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, font: 'helvetica' },
-    bodyStyles: { fontSize: 6.5, font: 'helvetica', textColor: [0, 0, 0] },
-    alternateRowStyles: { fillColor: [240, 253, 244] },
-    footStyles: { fillColor: [22, 101, 52], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
-    margin: { left: margin, right: margin },
-    didParseCell: (tableData) => {
-      if (tableData.section === 'body' && tableData.column.index === PROD_FINAL_COL_IDX_TABLE2) {
-        const rowIndex = tableData.row.index
-        const value = data[rowIndex]?.produtividade_final ?? 0
-        const cell = tableData.cell as { fillColor?: [number, number, number]; textColor?: number[]; fontStyle?: string }
-        cell.fillColor = getProdFinalFillColor(value)
-        cell.textColor = [255, 255, 255]
-        cell.fontStyle = 'bold'
-      }
-    },
-  })
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   yPos = (doc as any).lastAutoTable.finalY + 8
@@ -241,44 +235,80 @@ export async function gerarRelatorioPDF(data: FechamentoLinha[], options: PdfOpt
   doc.text('3. Descontos', margin, yPos)
   yPos += 2
 
-  const totais3 = {
-    errosSep: data.reduce((s, r) => s + r.erro_separacao_total, 0),
-    errosEnt: data.reduce((s, r) => s + r.erro_entregas_total, 0),
-    percErros: data.length > 0 ? data.reduce((s, r) => s + r.percentual_erros, 0) / data.length : 0,
-    percDescontos: data.length > 0 ? data.reduce((s, r) => s + r.percentual_descontos, 0) / data.length : 0,
-    vlrDescontos: data.reduce((s, r) => s + r.valor_descontos, 0),
+  if (descontosData.length > 0) {
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Colaborador', 'Filial', 'Mês/Ano', 'Faltas', 'Férias', 'Advert.', 'Susp.', 'Atestado', '% Total', 'Observação']],
+      body: descontosData.map(r => [
+        r.colaborador_nome,
+        r.filial_nome,
+        r.mes_ano_formatado,
+        String(r.falta_injustificada),
+        r.ferias,
+        String(r.advertencia),
+        String(r.suspensao),
+        String(r.atestado),
+        `${fmt(r.percentual_total, 0)}%`,
+        (r.observacao ?? '').slice(0, 20),
+      ]),
+      foot: [[
+        `TOTAL (${descontosData.length} registro(s))`,
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+        '',
+      ]],
+      theme: 'grid',
+      headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 6, font: 'helvetica' },
+      bodyStyles: { fontSize: 5.5, font: 'helvetica', textColor: [0, 0, 0] },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      footStyles: { fillColor: [22, 101, 52], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 6 },
+      margin: { left: margin, right: margin },
+    })
+  } else {
+    const totais3 = {
+      errosSep: data.reduce((s, r) => s + r.erro_separacao_total, 0),
+      errosEnt: data.reduce((s, r) => s + r.erro_entregas_total, 0),
+      percErros: data.length > 0 ? data.reduce((s, r) => s + r.percentual_erros, 0) / data.length : 0,
+      percDescontos: data.length > 0 ? data.reduce((s, r) => s + r.percentual_descontos, 0) / data.length : 0,
+      vlrDescontos: data.reduce((s, r) => s + r.valor_descontos, 0),
+    }
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Mês', 'Filial', 'Colaborador', 'Erros Sep.', 'Erros Ent.', '% Erros', '% Descontos', 'Vlr Descontos']],
+      body: data.map(r => [
+        mesFormatado,
+        r.filial_nome,
+        r.colaborador_nome,
+        r.erro_separacao_total.toString(),
+        r.erro_entregas_total.toString(),
+        `${fmt(r.percentual_erros, 1)}%`,
+        `${fmt(r.percentual_descontos, 1)}%`,
+        fmt(r.valor_descontos),
+      ]),
+      foot: [[
+        'TOTAL',
+        '',
+        `${data.length} colab.`,
+        totais3.errosSep.toString(),
+        totais3.errosEnt.toString(),
+        `${fmt(totais3.percErros, 1)}%`,
+        `${fmt(totais3.percDescontos, 1)}%`,
+        fmt(totais3.vlrDescontos),
+      ]],
+      theme: 'grid',
+      headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, font: 'helvetica' },
+      bodyStyles: { fontSize: 6.5, font: 'helvetica', textColor: [0, 0, 0] },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      footStyles: { fillColor: [22, 101, 52], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+      margin: { left: margin, right: margin },
+    })
   }
-
-  autoTable(doc, {
-    startY: yPos,
-    head: [['Mês', 'Filial', 'Colaborador', 'Erros Sep.', 'Erros Ent.', '% Erros', '% Descontos', 'Vlr Descontos']],
-    body: data.map(r => [
-      mesFormatado,
-      r.filial_nome,
-      r.colaborador_nome,
-      r.erro_separacao_total.toString(),
-      r.erro_entregas_total.toString(),
-      `${fmt(r.percentual_erros, 1)}%`,
-      `${fmt(r.percentual_descontos, 1)}%`,
-      fmt(r.valor_descontos),
-    ]),
-    foot: [[
-      'TOTAL',
-      '',
-      `${data.length} colab.`,
-      totais3.errosSep.toString(),
-      totais3.errosEnt.toString(),
-      `${fmt(totais3.percErros, 1)}%`,
-      `${fmt(totais3.percDescontos, 1)}%`,
-      fmt(totais3.vlrDescontos),
-    ]],
-    theme: 'grid',
-    headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, font: 'helvetica' },
-    bodyStyles: { fontSize: 6.5, font: 'helvetica', textColor: [0, 0, 0] },
-    alternateRowStyles: { fillColor: [240, 253, 244] },
-    footStyles: { fillColor: [22, 101, 52], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
-    margin: { left: margin, right: margin },
-  })
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   yPos = (doc as any).lastAutoTable.finalY + 8
@@ -339,12 +369,59 @@ export async function gerarRelatorioPDF(data: FechamentoLinha[], options: PdfOpt
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   yPos = (doc as any).lastAutoTable.finalY + 8
 
-  // --- Tabela 5: Resumo Geral ---
+  // --- Tabela 5: Resultados (fonte: tabela resultados) ---
+  if (resultadosData.length > 0) {
+    if (yPos > pageHeight - 40) { doc.addPage(); yPos = 15; }
+    doc.setTextColor(34, 139, 34)
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.text('5. Resultados (Fechamento)', margin, yPos)
+    yPos += 2
+
+    const PROD_FINAL_IDX = 10
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Filial', 'Mes/Ano', 'Função', 'Matr.', 'Colaborador', 'Vlr Acu.', 'Vlr Chk', 'Vlr Plt/Hs', 'Vlr Perda', 'Desconto', 'Prod. Final R$', 'Meta']],
+      body: resultadosData.map(r => [
+        r.filial_nome,
+        r.mes_ano_formatado,
+        (r.funcao ?? '').slice(0, 8),
+        (r.matricula ?? '').slice(0, 6),
+        r.colaborador_nome,
+        fmt(r.vlr_acuracidade),
+        fmt(r.vlr_checklist),
+        fmt(r.vlr_plt_hs),
+        fmt(r.vlr_perda),
+        fmt(r.desconto),
+        fmt(r.prod_final),
+        fmt(r.meta),
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 5.5, font: 'helvetica' },
+      bodyStyles: { fontSize: 5, font: 'helvetica', textColor: [0, 0, 0] },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      margin: { left: margin, right: margin },
+      didParseCell: (tableData) => {
+        if (tableData.section === 'body' && tableData.column.index === PROD_FINAL_IDX) {
+          const rowIndex = tableData.row.index
+          const value = resultadosData[rowIndex]?.prod_final ?? 0
+          const cell = tableData.cell as { fillColor?: [number, number, number]; textColor?: number[]; fontStyle?: string }
+          cell.fillColor = getProdFinalFillColor(value)
+          cell.textColor = [255, 255, 255]
+          cell.fontStyle = 'bold'
+        }
+      },
+    })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    yPos = (doc as any).lastAutoTable.finalY + 8
+  }
+
+  // --- Tabela 6: Resumo Geral ---
   if (yPos > pageHeight - 40) { doc.addPage(); yPos = 15; }
   doc.setTextColor(34, 139, 34)
   doc.setFontSize(11)
   doc.setFont('helvetica', 'bold')
-  doc.text('5. Resumo Geral', margin, yPos)
+  doc.text('6. Resumo Geral', margin, yPos)
   yPos += 2
 
   const totalPeso = data.reduce((s, r) => s + r.peso_liquido_total, 0)
@@ -378,6 +455,63 @@ export async function gerarRelatorioPDF(data: FechamentoLinha[], options: PdfOpt
       1: { cellWidth: 50 },
     },
   })
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  yPos = (doc as any).lastAutoTable.finalY + 8
+
+  // --- Tabela 7: Dados por Coleta ---
+  if (dadosPorColetaData.length > 0) {
+    if (yPos > pageHeight - 40) { doc.addPage(); yPos = 15; }
+    doc.setTextColor(34, 139, 34)
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.text('7. Dados por Coleta', margin, yPos)
+    yPos += 2
+
+    const TEMPO_COL_IDX = 10
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Mes/Ano', 'Filial', 'Coleta', 'Fornec', 'Dta Receb', 'Qtd Caixas', 'Peso Liq.', 'Paletes', 'Hora Inic', 'Hora Fim', 'Tempo', 'Kg/Hs', 'Vol/Hs', 'Plt/Hs']],
+      body: dadosPorColetaData.slice(0, 200).map(r => [
+        r.mes_ano,
+        r.filial,
+        (r.coleta ?? '').slice(0, 10),
+        (r.fornec ?? '').slice(0, 8),
+        r.dta_receb,
+        fmt(r.qtd_caixas),
+        fmt(r.peso_liquido),
+        fmt(r.qtd_paletes),
+        r.hora_inicial ?? '',
+        r.hora_final ?? '',
+        r.tempo_horas != null ? fmt(r.tempo_horas) : '',
+        r.kg_hs != null ? fmt(r.kg_hs) : '',
+        r.vol_hs != null ? fmt(r.vol_hs) : '',
+        r.plt_hs != null ? fmt(r.plt_hs) : '',
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [34, 139, 34], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 5, font: 'helvetica' },
+      bodyStyles: { fontSize: 4.5, font: 'helvetica', textColor: [0, 0, 0] },
+      alternateRowStyles: { fillColor: [240, 253, 244] },
+      margin: { left: margin, right: margin },
+      didParseCell: (tableData) => {
+        if (tableData.section === 'body' && tableData.column.index === TEMPO_COL_IDX) {
+          const rowIndex = tableData.row.index
+          const tempoVal = dadosPorColetaData[rowIndex]?.tempo_horas
+          if (tempoVal != null && tempoVal >= 1.5) {
+            const cell = tableData.cell as { fillColor?: [number, number, number]; textColor?: number[]; fontStyle?: string }
+            cell.fillColor = [220, 38, 38]
+            cell.textColor = [255, 255, 255]
+            cell.fontStyle = 'bold'
+          }
+        }
+      },
+    })
+    if (dadosPorColetaData.length > 200) {
+      doc.setFontSize(7)
+      doc.setTextColor(100)
+      doc.text(`(Mostrando 200 de ${dadosPorColetaData.length} registros)`, margin, (doc as any).lastAutoTable.finalY + 4)
+    }
+  }
 
   addFooter()
 

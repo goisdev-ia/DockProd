@@ -42,6 +42,8 @@ export default function DescontosPage() {
   const [filtroColaborador, setFiltroColaborador] = useState('todos')
   const [filtroFilial, setFiltroFilial] = useState('todas')
   const [filtroMes, setFiltroMes] = useState('todos')
+  const [filtroDataInicio, setFiltroDataInicio] = useState('')
+  const [filtroDataFim, setFiltroDataFim] = useState('')
   const [filtroBusca, setFiltroBusca] = useState('')
   const [filtroFaltasMin, setFiltroFaltasMin] = useState('')
   const [filtroFaltasMax, setFiltroFaltasMax] = useState('')
@@ -145,7 +147,7 @@ export default function DescontosPage() {
 
   useEffect(() => {
     aplicarFiltros()
-  }, [descontos, filtroColaborador, filtroFilial, filtroMes, buscaDebounced, filtroFaltasMin, filtroFaltasMax, filtroFeriasMin, filtroFeriasMax, filtroAdvertenciasMin, filtroAdvertenciasMax, filtroSuspensoesMin, filtroSuspensoesMax, filtroAtestadoMin, filtroAtestadoMax, matriculaDebounced])
+  }, [descontos, filtroColaborador, filtroFilial, filtroMes, filtroDataInicio, filtroDataFim, buscaDebounced, filtroFaltasMin, filtroFaltasMax, filtroFeriasMin, filtroFeriasMax, filtroAdvertenciasMin, filtroAdvertenciasMax, filtroSuspensoesMin, filtroSuspensoesMax, filtroAtestadoMin, filtroAtestadoMax, matriculaDebounced])
 
   const carregarDados = async () => {
     setLoading(true)
@@ -219,6 +221,16 @@ export default function DescontosPage() {
 
     if (filtroMes && filtroMes !== 'todos') {
       filtrados = filtrados.filter(d => (d as DescontoExtendido).mes === filtroMes)
+    }
+
+    if (filtroDataInicio || filtroDataFim) {
+      filtrados = filtrados.filter(d => {
+        const mesDesconto = d.mes_desconto ? String(d.mes_desconto).slice(0, 10) : ''
+        if (!mesDesconto) return false
+        if (filtroDataInicio && mesDesconto < filtroDataInicio) return false
+        if (filtroDataFim && mesDesconto > filtroDataFim) return false
+        return true
+      })
     }
 
     if (buscaDebounced) {
@@ -296,6 +308,8 @@ export default function DescontosPage() {
     setFiltroColaborador('todos')
     setFiltroFilial('todas')
     setFiltroMes('todos')
+    setFiltroDataInicio('')
+    setFiltroDataFim('')
     setFiltroBusca('')
     setFiltroFaltasMin('')
     setFiltroFaltasMax('')
@@ -315,6 +329,7 @@ export default function DescontosPage() {
     if (filtroColaborador !== 'todos') count++
     if (filtroFilial !== 'todas') count++
     if (filtroMes !== 'todos') count++
+    if (filtroDataInicio || filtroDataFim) count++
     if (filtroBusca) count++
     if (filtroFaltasMin) count++
     if (filtroFaltasMax) count++
@@ -560,6 +575,22 @@ export default function DescontosPage() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Entre datas (início)</Label>
+              <Input
+                type="date"
+                value={filtroDataInicio}
+                onChange={(e) => setFiltroDataInicio(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Entre datas (fim)</Label>
+              <Input
+                type="date"
+                value={filtroDataFim}
+                onChange={(e) => setFiltroDataFim(e.target.value)}
+              />
             </div>
             <div className="space-y-2">
               <Label>Matrícula</Label>

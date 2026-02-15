@@ -28,6 +28,7 @@ import { gerarRelatorioXLSX, gerarRelatorioXLSXDadosGerais } from '@/lib/relator
 import { gerarRelatorioWhatsApp, compartilharWhatsApp, copiarParaClipboard, type ResumoDescontoItem, type ErroSeparacaoItem, type ErroEntregaItem } from '@/lib/relatorios/whatsappGenerator'
 import { createClient } from '@/lib/supabase/client'
 import type { Desconto } from '@/types/database'
+import { calcularValorAcuracidade, calcularValorChecklist, calcularValorPltHsPorFilial, calcularValorPerda } from '@/lib/calculos'
 
 export default function RelatoriosPage() {
   const meses = [
@@ -36,6 +37,8 @@ export default function RelatoriosPage() {
   ]
   const [mesSelecionado, setMesSelecionado] = useState<string>(meses[new Date().getMonth()] ?? 'janeiro')
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
+  const [filtroDataInicio, setFiltroDataInicio] = useState('')
+  const [filtroDataFim, setFiltroDataFim] = useState('')
   const [tipoRelatorio, setTipoRelatorio] = useState('completo')
   const [loading, setLoading] = useState(false)
   const [loadingType, setLoadingType] = useState<string | null>(null)
@@ -46,8 +49,8 @@ export default function RelatoriosPage() {
   const [filtroFilial, setFiltroFilial] = useState('todas')
   const [filtroMatricula, setFiltroMatricula] = useState('')
   const [filtroBusca, setFiltroBusca] = useState('')
-  const [colaboradores, setColaboradores] = useState<{ id: string; nome: string; matricula?: string }[]>([])
-  const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
+  const [colaboradores, setColaboradores] = useState<{ id: string; nome: string; matricula?: string; funcao?: string | null }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string; codigo?: string }[]>([])
 
   // WhatsApp dialog
   const [showWhatsAppDialog, setShowWhatsAppDialog] = useState(false)
@@ -57,6 +60,8 @@ export default function RelatoriosPage() {
   const [whatsAppDescontosMap, setWhatsAppDescontosMap] = useState<Record<string, Desconto | null>>({})
   /** Mapa id_colaborador|mes|ano -> detalhe erros (separação e entregas + observação) */
   const [whatsAppErrosMap, setWhatsAppErrosMap] = useState<Record<string, { errosSeparacao: ErroSeparacaoItem[]; errosEntregas: ErroEntregaItem[] }>>({})
+  /** Mapa id_colaborador|id_filial -> resultados DockProd (acuracidade, checklist, perda, vlr_*) */
+  const [whatsAppResultadosMap, setWhatsAppResultadosMap] = useState<Record<string, { acuracidade: number | null; checklist: number | null; perda: number | null; vlr_acuracidade: number; vlr_checklist: number; vlr_plt_hs: number; vlr_perda: number }>>({})
 
   // User info
   const [usuarioLogado, setUsuarioLogado] = useState<{ nome: string; tipo: string; id_filial: string | null } | null>(null)
@@ -82,10 +87,10 @@ export default function RelatoriosPage() {
         }
       }
       
-      const { data: filiaisData } = await supabase.from('filiais').select('id, nome').eq('ativo', true).order('nome')
+      const { data: filiaisData } = await supabase.from('filiais').select('id, nome, codigo').eq('ativo', true).order('nome')
       if (filiaisData) setFiliais(filiaisData)
 
-      const { data: colabsData } = await supabase.from('colaboradores').select('id, nome, matricula').eq('ativo', true).order('nome')
+      const { data: colabsData } = await supabase.from('colaboradores').select('id, nome, matricula, funcao').eq('ativo', true).order('nome')
       if (colabsData) setColaboradores(colabsData)
     }
     carregar()
@@ -125,16 +130,38 @@ export default function RelatoriosPage() {
 
   const filialNomeSelecionada = filiais.find(f => f.id === filtroFilial)?.nome || 'Todas'
 
-  // Primeiro e último dia do mês (mes = nome: janeiro, fevereiro, ...)
+  useEffect(() => {
+    if (filtroDataInicio && filtroDataFim && filtroDataInicio.length >= 10) {
+      const [y, m] = filtroDataInicio.slice(0, 10).split('-').map(Number)
+      if (!isNaN(y) && !isNaN(m) && m >= 1 && m <= 12) {
+        setMesSelecionado(meses[m - 1] ?? meses[0])
+        setAnoSelecionado(y)
+      }
+    }
+  }, [filtroDataInicio, filtroDataFim])
+
+  // Primeiro e último dia do mês em horário local (evita timezone: 01/01 local não vira 31/12 UTC)
+  function toISODateLocal(d: Date): string {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
   function getIntervaloMes(mes: string, ano: number): { dataInicio: string; dataFim: string } {
     const idx = meses.indexOf(mes)
     const monthIndex = idx >= 0 ? idx : 0
     const primeiro = new Date(ano, monthIndex, 1)
     const ultimo = new Date(ano, monthIndex + 1, 0)
     return {
-      dataInicio: primeiro.toISOString().slice(0, 10),
-      dataFim: ultimo.toISOString().slice(0, 10),
+      dataInicio: toISODateLocal(primeiro),
+      dataFim: toISODateLocal(ultimo),
     }
+  }
+  function getIntervaloEfetivo(): { dataInicio: string; dataFim: string } {
+    if (filtroDataInicio && filtroDataFim) {
+      return { dataInicio: filtroDataInicio.slice(0, 10), dataFim: filtroDataFim.slice(0, 10) }
+    }
+    return getIntervaloMes(mesSelecionado, anoSelecionado)
   }
 
   function formatarDataBR(iso: string): string {
@@ -142,23 +169,62 @@ export default function RelatoriosPage() {
     return `${d}/${m}/${y}`
   }
 
-  // Buscar descontos e detalhe de erros ao abrir o dialog WhatsApp
+  // Buscar descontos, resultados DockProd e detalhe de erros ao abrir o dialog WhatsApp
   useEffect(() => {
     if (!showWhatsAppDialog || whatsAppData.length === 0) return
     const ids = [...new Set(whatsAppData.map(r => r.id_colaborador))]
     const mesesUnicos = [...new Set(whatsAppData.map(r => r.mes))]
     const anosUnicos = [...new Set(whatsAppData.map(r => r.ano))]
+    const fetchResultados = async () => {
+      const map: Record<string, { acuracidade: number | null; checklist: number | null; perda: number | null; vlr_acuracidade: number; vlr_checklist: number; vlr_plt_hs: number; vlr_perda: number }> = {}
+      const { data: filiaisData } = await supabase.from('filiais').select('id, codigo')
+      const codigoPorFilial = Object.fromEntries((filiaisData ?? []).map((f: { id: string; codigo?: string }) => [f.id, f.codigo ?? '']))
+      for (const mes of mesesUnicos) {
+        const { data } = await supabase
+          .from('resultados')
+          .select('id_colaborador, id_filial, mes, acuracidade, checklist, plt_hs, perda, colaboradores (funcao)')
+          .eq('mes', mes)
+          .in('id_colaborador', ids)
+        for (const r of data ?? []) {
+          const key = `${r.id_colaborador}|${r.id_filial}`
+          const acu = r.acuracidade != null ? Number(r.acuracidade) : null
+          const chk = r.checklist != null ? Number(r.checklist) : null
+          const perd = r.perda != null ? Number(r.perda) : null
+          const pltHs = Number(r.plt_hs ?? 0)
+          const funcao = (r.colaboradores as { funcao?: string } | null)?.funcao ?? ''
+          const codigo = codigoPorFilial[r.id_filial] ?? ''
+          const setor = (funcao || '').toLowerCase().includes('estoque') ? 'estoque' : 'recebimento'
+          map[key] = {
+            acuracidade: acu,
+            checklist: chk,
+            perda: perd,
+            vlr_acuracidade: calcularValorAcuracidade(acu ?? 0),
+            vlr_checklist: calcularValorChecklist(chk ?? 0),
+            vlr_plt_hs: calcularValorPltHsPorFilial(pltHs, codigo, setor),
+            vlr_perda: setor === 'estoque' ? calcularValorPerda(perd ?? 0) : 0,
+          }
+        }
+      }
+      setWhatsAppResultadosMap(map)
+    }
+
     const fetchDescontos = async () => {
       const map: Record<string, Desconto | null> = {}
-      for (const ano of anosUnicos) {
+      const paresMesAno = [...new Set(whatsAppData.map(r => `${r.mes}|${r.ano}`))].map(s => {
+        const [m, a] = s.split('|')
+        return { mes: m, ano: Number(a) }
+      })
+      for (const { mes, ano } of paresMesAno) {
+        const { dataInicio, dataFim } = getIntervaloMes(mes, ano)
         const { data } = await supabase
           .from('descontos')
           .select('*')
-          .eq('ano', ano)
-          .in('mes', mesesUnicos)
+          .gte('mes_desconto', dataInicio)
+          .lte('mes_desconto', dataFim)
           .in('id_colaborador', ids)
         for (const d of data ?? []) {
-          map[`${d.id_colaborador}|${d.mes}|${d.ano}`] = d as Desconto
+          const key = `${d.id_colaborador}|${d.id_filial ?? ''}|${mes}|${ano}`
+          map[key] = d as Desconto
         }
       }
       setWhatsAppDescontosMap(map)
@@ -191,6 +257,7 @@ export default function RelatoriosPage() {
       }
       setWhatsAppErrosMap(errosMap)
     }
+    fetchResultados()
     fetchDescontos()
     fetchErros()
   }, [showWhatsAppDialog, whatsAppData])
@@ -222,12 +289,18 @@ export default function RelatoriosPage() {
     try {
       const data = await buscarDadosFiltrados()
       if (data.length === 0) { setErro('Nenhum dado encontrado para o período selecionado.'); return }
+      const idFilialParaEvolucao = filtroFilial === 'todas' ? null : filtroFilial
+      const [descontosData, resultadosData, dadosPorColetaData] = await Promise.all([
+        fetchReportDescontos(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+        fetchReportResultados(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+        fetchReportDadosPorColeta(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+      ])
       const pdfBlob = await gerarRelatorioPDF(data, {
         mesNome: mesSelecionado,
         ano: anoSelecionado,
         filial: filialNomeSelecionada,
         usuario: usuarioLogado?.nome,
-      })
+      }, descontosData, resultadosData, dadosPorColetaData)
       const url = URL.createObjectURL(pdfBlob)
       const a = document.createElement('a')
       a.href = url
@@ -286,7 +359,19 @@ export default function RelatoriosPage() {
     try {
       const data = await buscarDadosFiltrados()
       if (data.length === 0) { setErro('Nenhum dado encontrado para o período selecionado.'); return }
-      await gerarRelatorioXLSX(data, { mesNome: mesSelecionado, ano: anoSelecionado })
+      const idFilialParaEvolucao = filtroFilial === 'todas' ? null : filtroFilial
+      const [descontosData, resultadosData, dadosPorColetaData] = await Promise.all([
+        fetchReportDescontos(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+        fetchReportResultados(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+        fetchReportDadosPorColeta(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+      ])
+      await gerarRelatorioXLSX(data, {
+        mesNome: mesSelecionado,
+        ano: anoSelecionado,
+        descontosData,
+        resultadosData,
+        dadosPorColetaData,
+      })
       toast.success('Excel gerado com sucesso!')
     } catch (e) {
       console.error(e)
@@ -317,7 +402,10 @@ export default function RelatoriosPage() {
 
   const getFiltrosDadosGerais = (): FiltrosDadosGerais | null => {
     const filtros: FiltrosDadosGerais = {}
-    if (mesSelecionado && mesSelecionado !== 'todos') {
+    if (filtroDataInicio && filtroDataFim) {
+      filtros.dataInicio = filtroDataInicio.slice(0, 10)
+      filtros.dataFim = filtroDataFim.slice(0, 10)
+    } else if (mesSelecionado && mesSelecionado !== 'todos') {
       const { dataInicio, dataFim } = getIntervaloMes(mesSelecionado, anoSelecionado)
       filtros.dataInicio = dataInicio
       filtros.dataFim = dataFim
@@ -393,15 +481,23 @@ export default function RelatoriosPage() {
   const getTextoWhatsApp = () => {
     if (whatsAppData.length === 0) return ''
     const r = whatsAppData[whatsAppColabIdx]
-    const key = `${r.id_colaborador}|${r.mes}|${r.ano}`
-    const desconto = whatsAppDescontosMap[key] ?? null
+    const keyDesconto = `${r.id_colaborador}|${r.id_filial ?? ''}|${r.mes}|${r.ano}`
+    const keyResultado = `${r.id_colaborador}|${r.id_filial}`
+    const desconto = whatsAppDescontosMap[keyDesconto] ?? null
     const resumoDescontos = buildResumoDescontos(desconto)
     const matriculaReal = colaboradores.find((c) => c.id === r.id_colaborador)?.matricula ?? r.id_colaborador
-    const detalheErros = whatsAppErrosMap[key]
+    const funcaoColab = colaboradores.find((c) => c.id === r.id_colaborador)?.funcao ?? ''
+    const filialObj = filiais.find((f) => f.id === r.id_filial)
+    const filialFormatada = filialObj?.codigo ? `${filialObj.codigo} - ${filialObj.nome}` : r.filial_nome
+    const res = whatsAppResultadosMap[keyResultado]
+    const prodBruta = res ? res.vlr_acuracidade + res.vlr_checklist + res.vlr_plt_hs + res.vlr_perda : r.produtividade_bruta
+    const valorDescontos = r.valor_descontos ?? 0
+    const percentualDescontos = prodBruta > 0 ? (valorDescontos / prodBruta) * 100 : 0
     return gerarRelatorioWhatsApp({
       colaborador: r.colaborador_nome,
       matricula: matriculaReal,
-      filial: r.filial_nome,
+      funcao: funcaoColab ?? '',
+      filial: filialFormatada,
       mes: r.mes,
       pesoTotal: r.peso_liquido_total,
       volumeTotal: r.volume_total,
@@ -410,17 +506,18 @@ export default function RelatoriosPage() {
       kgHs: r.kg_hs,
       volHs: r.vol_hs,
       pltHs: r.plt_hs,
-      erros: r.erro_separacao_total + r.erro_entregas_total,
-      vlrKgHs: r.valor_kg_hs,
-      vlrVolHs: r.valor_vol_hs,
-      vlrPltHs: r.valor_plt_hs,
-      prodBruta: r.produtividade_bruta,
-      percentualErros: r.percentual_erros,
-      percentualDescontos: r.percentual_descontos,
+      acuracidade: res?.acuracidade ?? null,
+      checklist: res?.checklist ?? null,
+      perda: res?.perda ?? null,
+      vlrAcuracidade: res?.vlr_acuracidade ?? 0,
+      vlrChecklist: res?.vlr_checklist ?? 0,
+      vlrPltHs: res?.vlr_plt_hs ?? 0,
+      vlrPerda: res?.vlr_perda ?? 0,
+      prodBruta,
+      percentualDescontos,
       prodFinal: r.produtividade_final,
       meta: r.meta,
       percentualAtingimento: r.percentual_atingimento,
-      detalheErros,
       resumoDescontos: resumoDescontos.itens.length > 0 ? resumoDescontos : undefined,
     })
   }
@@ -523,6 +620,14 @@ export default function RelatoriosPage() {
                   <SelectItem value="2026">2026</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Entre datas (início)</Label>
+              <Input type="date" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Entre datas (fim)</Label>
+              <Input type="date" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} />
             </div>
           </div>
 
@@ -713,39 +818,7 @@ export default function RelatoriosPage() {
                 </Select>
               </div>
               <div className="bg-muted rounded-lg p-3 text-xs max-h-60 overflow-y-auto whitespace-pre-wrap font-mono">
-                {whatsAppData[whatsAppColabIdx] && (() => {
-                  const r = whatsAppData[whatsAppColabIdx]
-                  const key = `${r.id_colaborador}|${r.mes}|${r.ano}`
-                  const desconto = whatsAppDescontosMap[key] ?? null
-                  const resumoDescontos = buildResumoDescontos(desconto)
-                  const matriculaReal = colaboradores.find((c) => c.id === r.id_colaborador)?.matricula ?? r.id_colaborador
-                  const detalheErros = whatsAppErrosMap[key]
-                  return gerarRelatorioWhatsApp({
-                    colaborador: r.colaborador_nome,
-                    matricula: matriculaReal,
-                    filial: r.filial_nome,
-                    mes: r.mes,
-                    pesoTotal: r.peso_liquido_total,
-                    volumeTotal: r.volume_total,
-                    paletesTotal: r.paletes_total,
-                    tempo: r.tempo_total,
-                    kgHs: r.kg_hs,
-                    volHs: r.vol_hs,
-                    pltHs: r.plt_hs,
-                    erros: r.erro_separacao_total + r.erro_entregas_total,
-                    vlrKgHs: r.valor_kg_hs,
-                    vlrVolHs: r.valor_vol_hs,
-                    vlrPltHs: r.valor_plt_hs,
-                    prodBruta: r.produtividade_bruta,
-                    percentualErros: r.percentual_erros,
-                    percentualDescontos: r.percentual_descontos,
-                    prodFinal: r.produtividade_final,
-                    meta: r.meta,
-                    percentualAtingimento: r.percentual_atingimento,
-                    detalheErros,
-                    resumoDescontos: resumoDescontos.itens.length > 0 ? resumoDescontos : undefined,
-                  })
-                })()}
+                {getTextoWhatsApp()}
               </div>
             </div>
           )}

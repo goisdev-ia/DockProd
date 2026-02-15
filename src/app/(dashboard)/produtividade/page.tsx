@@ -545,14 +545,14 @@ export default function ProdutividadePage() {
                         const val = dado[key]
                         const isNum = ['qtd_caixas', 'peso_liquido', 'qtd_paletes', 'tempo_horas', 'kg_hs', 'vol_hs', 'plt_hs'].includes(col)
                         const display = key === 'dta_receb' && val ? formatDateBR(String(val)) : isNum && typeof val === 'number' ? (key === 'peso_liquido' || key === 'qtd_paletes' || key === 'kg_hs' || key === 'vol_hs' || key === 'plt_hs' ? Number(val).toFixed(2) : key === 'tempo_horas' ? Number(val).toFixed(2) : Number(val).toFixed(0)) : val != null ? String(val) : '—'
+                        const tempoAlto = key === 'tempo_horas' && val != null && Number(val) >= 1.5
+                        const baseClass = key === 'id_coleta_recebimento' ? 'font-mono text-xs' :
+                          key === 'filial' || key === 'fornec' ? 'text-xs max-w-[120px] truncate' :
+                          isNum ? 'text-right' : ''
                         return (
                           <TableCell
                             key={col}
-                            className={
-                              key === 'id_coleta_recebimento' ? 'font-mono text-xs' :
-                              key === 'filial' || key === 'fornec' ? 'text-xs max-w-[120px] truncate' :
-                              isNum ? 'text-right' : ''
-                            }
+                            className={baseClass + (tempoAlto ? ' text-red-600 font-bold' : '')}
                           >
                             {display}
                           </TableCell>

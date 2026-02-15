@@ -31,7 +31,7 @@ import {
   intervalToHours,
   contarPaletes,
 } from '@/lib/calculos'
-import { getDatasPorMesAno, toISODate } from '@/lib/dashboard-filters'
+import { getDatasPorMesAno, toISODate, parseISODateLocal } from '@/lib/dashboard-filters'
 import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import { registrarLog } from '@/lib/logs'
 import type { Fechamento, Resultado as ResultadoType } from '@/types/database'
@@ -71,6 +71,8 @@ export default function ResultadoPage() {
   const [calculando, setCalculando] = useState(false)
   const [mesSelecionado, setMesSelecionado] = useState('')
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
+  const [filtroDataInicio, setFiltroDataInicio] = useState('')
+  const [filtroDataFim, setFiltroDataFim] = useState('')
   const [paginaFechamento, setPaginaFechamento] = useState(1)
   const [paginaResultado, setPaginaResultado] = useState(1)
   const [filtroFilial, setFiltroFilial] = useState('todas')
@@ -95,6 +97,16 @@ export default function ResultadoPage() {
   useEffect(() => {
     setMesSelecionado(MESES[new Date().getMonth()])
   }, [])
+
+  useEffect(() => {
+    if (filtroDataInicio && filtroDataFim) {
+      const d = parseISODateLocal(filtroDataInicio)
+      if (d) {
+        setMesSelecionado(MESES[d.getMonth()])
+        setAnoSelecionado(d.getFullYear())
+      }
+    }
+  }, [filtroDataInicio, filtroDataFim])
 
   useEffect(() => {
     const t = setTimeout(() => setBuscaDebounced(filtroBusca), 300)
@@ -229,7 +241,24 @@ export default function ResultadoPage() {
     setCalculando(true)
     try {
       // ── 1. Buscar dados brutos ──────────────────────────────────────────
-      const { dataInicio, dataFim } = getDatasPorMesAno(mesSelecionado, anoSelecionado)
+      let dataInicio: Date
+      let dataFim: Date
+      if (filtroDataInicio && filtroDataFim) {
+        const di = parseISODateLocal(filtroDataInicio)
+        const df = parseISODateLocal(filtroDataFim)
+        if (!di || !df) {
+          const fallback = getDatasPorMesAno(mesSelecionado, anoSelecionado)
+          dataInicio = fallback.dataInicio
+          dataFim = fallback.dataFim
+        } else {
+          dataInicio = di
+          dataFim = df
+        }
+      } else {
+        const range = getDatasPorMesAno(mesSelecionado, anoSelecionado)
+        dataInicio = range.dataInicio
+        dataFim = range.dataFim
+      }
       const dataInicioISO = toISODate(dataInicio)
       const dataFimISO = toISODate(dataFim)
 
@@ -482,6 +511,8 @@ export default function ResultadoPage() {
     setFiltroFilial(usuarioLogado?.tipo === 'colaborador' ? usuarioLogado.id_filial ?? 'todas' : 'todas')
     setFiltroColaborador('todos')
     setFiltroBusca('')
+    setFiltroDataInicio('')
+    setFiltroDataFim('')
     setPaginaFechamento(1)
     setPaginaResultado(1)
   }
@@ -490,6 +521,7 @@ export default function ResultadoPage() {
     if (filtroFilial !== 'todas') c++
     if (filtroColaborador !== 'todos') c++
     if (filtroBusca) c++
+    if (filtroDataInicio || filtroDataFim) c++
     return c
   }
 
@@ -610,6 +642,14 @@ export default function ResultadoPage() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Entre datas (início)</Label>
+            <Input type="date" value={filtroDataInicio} onChange={(e) => setFiltroDataInicio(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label>Entre datas (fim)</Label>
+            <Input type="date" value={filtroDataFim} onChange={(e) => setFiltroDataFim(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Filial</Label>

@@ -7,31 +7,51 @@ import { NextResponse } from 'next/server'
 /**
  * Cria o registro em public.usuarios para o usuário atual do Auth, se ainda não existir.
  * Usado quando o usuário confirmou email no Auth mas o insert no cadastro não foi feito (ex.: saiu da página antes).
+ * Aceita userId e access_token no body para contornar falhas de sessão via cookies.
  */
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    const cookieStore = await cookies()
-    const supabaseAnon = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
-          },
-          setAll() {
-            // API: não persistir cookies
-          },
-        },
-      }
-    )
+    let user: { id: string; email?: string; user_metadata?: Record<string, unknown> } | null = null
 
-    const { data: { user }, error: authError } = await supabaseAnon.auth.getUser()
-    if (authError || !user?.id) {
-      return NextResponse.json(
-        { error: 'Faça login primeiro.' },
-        { status: 401 }
+    const body = (await request.json().catch(() => ({}))) as { userId?: string; access_token?: string } | null
+    const bodyUserId = body?.userId
+    const access_token = body?.access_token
+
+    if (bodyUserId && access_token) {
+      const supabaseAnon = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       )
+      const { data: { user: validatedUser }, error } = await supabaseAnon.auth.getUser(access_token)
+      if (!error && validatedUser?.id === bodyUserId) {
+        user = validatedUser
+      }
+    }
+
+    if (!user) {
+      const cookieStore = await cookies()
+      const supabaseAnon = createServerClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          cookies: {
+            getAll() {
+              return cookieStore.getAll()
+            },
+            setAll() {
+              // API: não persistir cookies
+            },
+          },
+        }
+      )
+      const { data: { user: cookieUser }, error: authError } = await supabaseAnon.auth.getUser()
+      if (authError || !cookieUser?.id) {
+        return NextResponse.json(
+          { error: 'Faça login primeiro.' },
+          { status: 401 }
+        )
+      }
+      user = cookieUser
     }
 
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY

@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [senha, setSenha] = useState('')
   const [mostrarSenha, setMostrarSenha] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
   const [erro, setErro] = useState('')
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -66,11 +67,19 @@ export default function LoginPage() {
 
       // Se não existe em usuarios mas existe no Auth (ex.: confirmou email e saiu antes do insert), criar registro
       if ((userError || !usuario) && userId) {
+        setBackfilling(true)
+        const accessToken = signInData.session?.access_token
         const res = await fetch('/api/backfill-usuario', {
           method: 'POST',
           credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId,
+            access_token: accessToken ?? undefined,
+          }),
         })
         if (res.ok) {
+          await new Promise(r => setTimeout(r, 150))
           const retry = await supabase
             .from('usuarios')
             .select('*')
@@ -79,6 +88,7 @@ export default function LoginPage() {
           usuario = retry.data
           userError = retry.error
         }
+        setBackfilling(false)
       }
 
       if (userError || !usuario) {
@@ -109,6 +119,7 @@ export default function LoginPage() {
       setErro('Erro inesperado ao fazer login. Tente novamente.')
     } finally {
       setLoading(false)
+      setBackfilling(false)
     }
   }
 
@@ -197,7 +208,7 @@ export default function LoginPage() {
               className="w-full bg-green-600 hover:bg-green-700"
               disabled={loading}
             >
-              {loading ? 'Entrando...' : 'Entrar'}
+              {loading ? (backfilling ? 'Criando seu perfil...' : 'Entrando...') : 'Entrar'}
             </Button>
             <Button
               type="button"

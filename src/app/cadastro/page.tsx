@@ -60,21 +60,27 @@ export default function CadastroPage() {
 
       // 2. Inserir em public.usuarios via API (service_role contorna RLS)
       const senhaHash = await hash(senha, 10)
-      const res = await fetch('/api/cadastro-usuario', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: userId,
-          nome,
-          email: email.trim().toLowerCase(),
-          senhaHash,
-          tipo: 'novo',
-        }),
-      })
+      const payload = {
+        id: userId,
+        nome,
+        email: email.trim().toLowerCase(),
+        senhaHash,
+        tipo: 'novo',
+      }
+      let res: Response | null = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        res = await fetch('/api/cadastro-usuario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (res.ok) break
+        if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
+      }
 
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setErro((data.error as string) || 'Erro ao criar conta. Tente novamente.')
+      const data = await res!.json().catch(() => ({}))
+      if (!res!.ok) {
+        setErro((data.error as string) || 'Erro ao criar conta. Verifique sua conexão e tente novamente.')
         setLoading(false)
         return
       }
@@ -137,7 +143,7 @@ export default function CadastroPage() {
             )}
             {sucesso && (
               <div className="p-3 text-sm text-green-800 bg-green-50 border border-green-200 rounded-md">
-                Conta criada com sucesso! Aguarde aprovação do administrador.
+                Conta criada! Verifique seu e-mail e clique no link de confirmação. Depois, faça login. Aguarde aprovação do administrador para liberar seu acesso completo.
               </div>
             )}
             <div className="space-y-2">

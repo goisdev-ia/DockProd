@@ -168,13 +168,20 @@ export function gerarRelatorioHTML(
   const filialVolume = JSON.stringify(filialEntries.map(e => Number((filialUnicaPorNome.get(e[0])?.volume ?? 0).toFixed(0))))
   const filialPaletes = JSON.stringify(filialEntries.map(e => Number((filialUnicaPorNome.get(e[0])?.paletes ?? 0).toFixed(1))))
 
-  // 8. Descontos em % dos Colaboradores (mesma lógica do Dashboard: percentual_erros + percentual_descontos, top 12)
-  const porColabDescontosPerc = data.reduce((acc, r) => {
-    const nome = r.colaborador_nome || 'Sem nome'
-    if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
-    acc[nome].percentual += (r.percentual_erros ?? 0) + (r.percentual_descontos ?? 0)
-    return acc
-  }, {} as Record<string, { nome: string; percentual: number }>)
+  // 8. Descontos em % dos Colaboradores: descontosData como fonte principal quando disponível; senão data (percentual_erros + percentual_descontos)
+  const porColabDescontosPerc = descontosData.length > 0
+    ? descontosData.reduce((acc, r) => {
+        const nome = r.colaborador_nome || 'Sem nome'
+        if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
+        acc[nome].percentual += r.percentual_total ?? 0
+        return acc
+      }, {} as Record<string, { nome: string; percentual: number }>)
+    : data.reduce((acc, r) => {
+        const nome = r.colaborador_nome || 'Sem nome'
+        if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
+        acc[nome].percentual += (r.percentual_erros ?? 0) + (r.percentual_descontos ?? 0)
+        return acc
+      }, {} as Record<string, { nome: string; percentual: number }>)
   const descontosPercTop = Object.values(porColabDescontosPerc)
     .filter(d => d.percentual > 0)
     .sort((a, b) => b.percentual - a.percentual)
@@ -810,6 +817,7 @@ ${(function buildDadosPorColetaTable() {
   // 8. Descontos em % dos Colaboradores (igual ao Dashboard: Pie/Doughnut)
   const chartDescontosPercEl = document.getElementById('chartDescontosPerc');
   const descontosPercDataLength = ${descontosPercTop.length};
+  if (chartDescontosPercEl) {
   if (descontosPercDataLength > 0) {
     new Chart(chartDescontosPercEl, {
       type: 'doughnut',
@@ -839,6 +847,7 @@ ${(function buildDadosPorColetaTable() {
     });
   } else {
     chartDescontosPercEl.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;">Nenhum desconto no período</div>';
+  }
   }
 
   // 7. Descontos Colaborador (valores dentro das barras - cor clara para contraste no vermelho)

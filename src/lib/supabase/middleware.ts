@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { backfillUsuario } from './backfill-usuario'
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
@@ -44,13 +45,26 @@ export async function updateSession(request: NextRequest) {
 
   // Se está autenticado, verificar tipo de usuário
   if (user) {
-    const { data: usuario } = await supabase
+    let { data: usuario } = await supabase
       .from('usuarios')
       .select('tipo, ativo')
       .eq('id', user.id)
       .single()
 
-    // Se usuário não está ativo, fazer logout
+    // Se não existe em usuarios (ex.: confirmou email e saiu antes do insert), tentar backfill
+    if (!usuario) {
+      const created = await backfillUsuario(user.id)
+      if (created) {
+        const retry = await supabase
+          .from('usuarios')
+          .select('tipo, ativo')
+          .eq('id', user.id)
+          .single()
+        usuario = retry.data
+      }
+    }
+
+    // Se ainda não existe ou não está ativo, fazer logout
     if (!usuario?.ativo) {
       await supabase.auth.signOut()
       const url = request.nextUrl.clone()

@@ -88,8 +88,12 @@ export interface DadoProdutividadeRelatorio {
   observacao: string | null
 }
 
-function toISODate(d: Date): string {
-  return d.toISOString().slice(0, 10)
+/** ISO date em horário local (evita timezone: 01/01 local não vira 31/12 UTC). */
+function toISODateLocal(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 /** Busca dados de evolução temporal por data_carga para o relatório HTML (mesmo RPC do dashboard). */
@@ -111,8 +115,8 @@ export async function fetchEvolucaoTemporal(
     dataFim = new Date(ano, month + 1, 0)
   }
   const { data, error } = await supabase.rpc('get_dashboard_evolucao', {
-    p_data_inicio: toISODate(dataInicio),
-    p_data_fim: toISODate(dataFim),
+    p_data_inicio: toISODateLocal(dataInicio),
+    p_data_fim: toISODateLocal(dataFim),
     p_id_filial: idFilial,
     p_busca: null,
     p_id_colaborador: null,
@@ -148,8 +152,8 @@ async function fetchEvolucaoTemporalFromRecebimentos(
   let qRec = supabase
     .from('recebimentos')
     .select('id, id_filial, dta_receb, id_coleta_recebimento, peso_liquido_recebido, qtd_caixas_recebidas')
-    .gte('dta_receb', toISODate(dataInicio))
-    .lte('dta_receb', toISODate(dataFim))
+    .gte('dta_receb', toISODateLocal(dataInicio))
+    .lte('dta_receb', toISODateLocal(dataFim))
   if (idFilial) qRec = qRec.eq('id_filial', idFilial)
   const { data: recList } = await qRec
   const recs = (recList ?? []) as Array<{
@@ -192,29 +196,6 @@ async function fetchEvolucaoTemporalFromRecebimentos(
     .sort((a, b) => a.data_carga.localeCompare(b.data_carga))
 }
 
-function mapRowToDadoProdutividadeRelatorio(r: Record<string, unknown>): DadoProdutividadeRelatorio {
-  return {
-    id_carga_cliente: String(r.id_carga_cliente ?? ''),
-    carga: String(r.carga ?? ''),
-    data_carga: r.data_carga != null ? String(r.data_carga).slice(0, 10) : '',
-    filial: String(r.filial ?? ''),
-    cliente: String(r.cliente ?? ''),
-    colaborador: r.colaborador != null ? String(r.colaborador) : null,
-    hora_inicial: r.hora_inicial != null ? String(r.hora_inicial).slice(0, 5) : null,
-    hora_final: r.hora_final != null ? String(r.hora_final).slice(0, 5) : null,
-    peso_liquido_total: Number(r.peso_liquido_total ?? 0),
-    volume_total: Number(r.volume_total ?? 0),
-    paletes_total: Number(r.paletes_total ?? 0),
-    tempo: r.tempo != null ? Number(r.tempo) : null,
-    kg_hs: r.kg_hs != null ? Number(r.kg_hs) : null,
-    vol_hs: r.vol_hs != null ? Number(r.vol_hs) : null,
-    plt_hs: r.plt_hs != null ? Number(r.plt_hs) : null,
-    erro_separacao: Number(r.erro_separacao ?? 0),
-    erro_entregas: Number(r.erro_entregas ?? 0),
-    observacao: r.observacao != null ? String(r.observacao) : null,
-  }
-}
-
 /** Filtros opcionais para relatórios Dados Gerais (mesmo padrão da tela Relatórios). */
 export interface FiltrosDadosGerais {
   dataInicio?: string
@@ -223,51 +204,157 @@ export interface FiltrosDadosGerais {
   id_colaborador?: string
 }
 
-const PAGE_SIZE_DADOS_GERAIS = 1000
-
-/** Busca registros de dados_produtividade (agrupados por id_carga_cliente) para relatórios Dados Gerais, com filtros opcionais. */
+/** Busca dados de produtividade (recebimentos + tempo agrupados por coleta) para relatórios Dados Gerais (DockProd). */
 export async function fetchAllDadosProdutividade(filtros?: FiltrosDadosGerais | null): Promise<DadoProdutividadeRelatorio[]> {
   const supabase = createClient()
-  const all: DadoProdutividadeRelatorio[] = []
-  const hasFilters = filtros && (filtros.dataInicio ?? filtros.dataFim ?? filtros.id_filial ?? filtros.id_colaborador)
-
-  if (hasFilters) {
-    let offset = 0
-    let hasMore = true
-    while (hasMore) {
-      const { data: rows, error } = await supabase.rpc('get_produtividade_agrupado_filtrado', {
-        p_data_inicio: filtros?.dataInicio ?? null,
-        p_data_fim: filtros?.dataFim ?? null,
-        p_id_filial: filtros?.id_filial ?? null,
-        p_id_colaborador: filtros?.id_colaborador ?? null,
-        p_limit: PAGE_SIZE_DADOS_GERAIS,
-        p_offset: offset,
-      })
-      if (error) throw error
-      if (!rows || rows.length === 0) break
-      for (const r of rows as Record<string, unknown>[]) {
-        all.push(mapRowToDadoProdutividadeRelatorio(r))
-      }
-      if (rows.length < PAGE_SIZE_DADOS_GERAIS) hasMore = false
-      else offset += PAGE_SIZE_DADOS_GERAIS
-    }
-  } else {
-    let offset = 0
-    let hasMore = true
-    while (hasMore) {
-      const { data: rows, error } = await supabase.rpc('get_produtividade_agrupado_paginado', {
-        p_limit: PAGE_SIZE_DADOS_GERAIS,
-        p_offset: offset,
-      })
-      if (error) throw error
-      if (!rows || rows.length === 0) break
-      for (const r of rows as Record<string, unknown>[]) {
-        all.push(mapRowToDadoProdutividadeRelatorio(r))
-      }
-      if (rows.length < PAGE_SIZE_DADOS_GERAIS) hasMore = false
-      else offset += PAGE_SIZE_DADOS_GERAIS
-    }
+  const hoje = new Date()
+  const dataInicio = filtros?.dataInicio ?? toISODateLocal(new Date(hoje.getFullYear(), hoje.getMonth(), 1))
+  const dataFim = filtros?.dataFim ?? toISODateLocal(new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0))
+  let nomeColaborador: string | null = null
+  if (filtros?.id_colaborador) {
+    const { data: col } = await supabase.from('colaboradores').select('nome').eq('id', filtros.id_colaborador).single()
+    nomeColaborador = (col as { nome?: string } | null)?.nome ?? null
   }
+
+  let query = supabase
+    .from('recebimentos')
+    .select('*')
+    .gte('dta_receb', dataInicio)
+    .lte('dta_receb', dataFim)
+    .order('dta_receb', { ascending: false })
+    .limit(10000)
+  if (filtros?.id_filial) query = query.eq('id_filial', filtros.id_filial)
+  if (nomeColaborador) query = query.eq('usuario_recebto', nomeColaborador)
+
+  const { data: recebimentos, error: errRec } = await query
+  if (errRec) throw errRec
+
+  const recList = (recebimentos ?? []) as Array<{
+    id: string
+    id_filial: string | null
+    id_coleta_recebimento: string | null
+    filial: string | null
+    fornecedor: string | null
+    coleta: string | null
+    dta_receb: string | null
+    usuario_recebto: string | null
+    qtd_caixas_recebidas: number | null
+    peso_liquido_recebido: number | null
+    observacao: string | null
+  }>
+
+  const coletasIds = [...new Set(recList.map((r) => r.id_coleta_recebimento ?? r.id).filter(Boolean))] as string[]
+  if (coletasIds.length === 0) return []
+
+  const { data: tempoData } = await supabase
+    .from('tempo')
+    .select('*')
+    .in('id_coleta_recebimento', coletasIds)
+  const tempoList = (tempoData ?? []) as Array<{
+    id: string
+    id_coleta_recebimento: string | null
+    inicio_recebimento: string | null
+    final_recebimento: string | null
+    tempo_recebimento: string | null
+  }>
+  const tempoPorColeta = new Map<string, { inicio: string | null; final: string | null; tempo_recebimento: string | null }>()
+  tempoList.forEach((t) => {
+    const key = t.id_coleta_recebimento ?? ''
+    if (key && coletasIds.includes(key) && !tempoPorColeta.has(key)) {
+      tempoPorColeta.set(key, {
+        inicio: t.inicio_recebimento ? String(t.inicio_recebimento) : null,
+        final: t.final_recebimento ? String(t.final_recebimento) : null,
+        tempo_recebimento: t.tempo_recebimento ? String(t.tempo_recebimento) : null,
+      })
+    }
+  })
+
+  const grupos = new Map<string, {
+    id_coleta: string
+    id_filial: string | null
+    filial: string
+    coleta: string
+    fornecedor: string
+    data_carga: string
+    colaborador: string | null
+    qtd_caixas: number
+    peso_liquido: number
+    qtd_caixas_arr: number[]
+    observacoes: string[]
+  }>()
+  recList.forEach((r) => {
+    const key = (r.id_coleta_recebimento ?? r.id) as string
+    if (!grupos.has(key)) {
+      grupos.set(key, {
+        id_coleta: key,
+        id_filial: r.id_filial,
+        filial: (r.filial ?? '') as string,
+        coleta: (r.coleta ?? '') as string,
+        fornecedor: (r.fornecedor ?? '') as string,
+        data_carga: r.dta_receb ? String(r.dta_receb).slice(0, 10) : '',
+        colaborador: r.usuario_recebto ? String(r.usuario_recebto) : null,
+        qtd_caixas: 0,
+        peso_liquido: 0,
+        qtd_caixas_arr: [],
+        observacoes: [],
+      })
+    }
+    const g = grupos.get(key)!
+    g.qtd_caixas += Number(r.qtd_caixas_recebidas ?? 0)
+    g.peso_liquido += Number(r.peso_liquido_recebido ?? 0)
+    g.qtd_caixas_arr.push(Number(r.qtd_caixas_recebidas ?? 0))
+    if (r.observacao && r.observacao.trim()) g.observacoes.push(String(r.observacao).trim())
+  })
+
+  const all: DadoProdutividadeRelatorio[] = []
+  const gruposOrdenados = [...grupos.entries()].sort((a, b) => b[1].data_carga.localeCompare(a[1].data_carga))
+  gruposOrdenados.forEach(([, g]) => {
+    const tempo = tempoPorColeta.get(g.id_coleta)
+    const tempoHoras = tempo?.tempo_recebimento != null ? intervalToHours(tempo.tempo_recebimento) : null
+    const paletes = contarPaletes(g.qtd_caixas_arr)
+    const th = tempoHoras ?? null
+    const kgHs = th != null && th > 0 ? g.peso_liquido / th : null
+    const volHs = th != null && th > 0 ? g.qtd_caixas / th : null
+    const pltHs = th != null && th > 0 ? paletes / th : null
+    let horaInicial: string | null = null
+    let horaFinal: string | null = null
+    if (tempo?.inicio) {
+      try {
+        const d = new Date(tempo.inicio)
+        horaInicial = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+      } catch {
+        horaInicial = null
+      }
+    }
+    if (tempo?.final) {
+      try {
+        const d = new Date(tempo.final)
+        horaFinal = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`
+      } catch {
+        horaFinal = null
+      }
+    }
+    all.push({
+      id_carga_cliente: g.id_coleta,
+      carga: g.coleta,
+      data_carga: g.data_carga,
+      filial: g.filial,
+      cliente: g.fornecedor || null,
+      colaborador: g.colaborador,
+      hora_inicial: horaInicial,
+      hora_final: horaFinal,
+      peso_liquido_total: g.peso_liquido,
+      volume_total: g.qtd_caixas,
+      paletes_total: paletes,
+      tempo: tempoHoras,
+      kg_hs: kgHs,
+      vol_hs: volHs,
+      plt_hs: pltHs,
+      erro_separacao: 0,
+      erro_entregas: 0,
+      observacao: g.observacoes.length > 0 ? g.observacoes.join('; ') : null,
+    })
+  })
   return all
 }
 
@@ -412,8 +499,8 @@ export async function fetchReportDescontos(
       colaboradores (nome),
       filiais (nome)
     `)
-    .gte('mes_desconto', toISODate(dataInicio))
-    .lte('mes_desconto', toISODate(dataFim))
+    .gte('mes_desconto', toISODateLocal(dataInicio))
+    .lte('mes_desconto', toISODateLocal(dataFim))
   if (idFilial) query = query.eq('id_filial', idFilial)
   const { data, error } = await query.order('mes_desconto', { ascending: false })
   if (error) return []
@@ -562,8 +649,8 @@ export async function fetchReportDadosPorColeta(
   const monthIdx = numStr ? parseInt(numStr, 10) - 1 : 0
   const dataInicio = new Date(ano, monthIdx, 1)
   const dataFim = new Date(ano, monthIdx + 1, 0)
-  const dataInicioStr = toISODate(dataInicio)
-  const dataFimStr = toISODate(dataFim)
+  const dataInicioStr = toISODateLocal(dataInicio)
+  const dataFimStr = toISODateLocal(dataFim)
   const mesAnoFormatado = `${mesesLongosReport[mesNome.toLowerCase()] || mesNome}/${ano}`
 
   let query = supabase

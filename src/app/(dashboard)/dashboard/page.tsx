@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import {
   getDatasPorPeriodo,
   toISODate,
+  parseISODateLocal,
   getMesAnoPorPeriodo,
   type PeriodoOption,
 } from '@/lib/dashboard-filters'
@@ -245,7 +246,9 @@ export default function DashboardPage() {
   const idFilial = filialSelecionada === 'todas' ? null : filialSelecionada
   const datasPrincipal = useMemo(() => {
     if (dataCargaInicio && dataCargaFim) {
-      return { data_inicio: new Date(dataCargaInicio), data_fim: new Date(dataCargaFim) }
+      const di = parseISODateLocal(dataCargaInicio)
+      const df = parseISODateLocal(dataCargaFim)
+      if (di && df) return { data_inicio: di, data_fim: df }
     }
     return getDatasPorPeriodo(periodoSelecionado as PeriodoOption)
   }, [periodoSelecionado, dataCargaInicio, dataCargaFim])

@@ -9,7 +9,6 @@ import {
   endOfQuarter,
   startOfYear,
   endOfYear,
-  format,
   addMonths,
 } from 'date-fns'
 
@@ -116,9 +115,28 @@ export function getDatasPorPeriodo(periodo: PeriodoOption): {
   }
 }
 
-/** Formato YYYY-MM-DD para Supabase */
+/** Formato YYYY-MM-DD em horário local (evita timezone: 01/01 local não vira 31/12 UTC) */
+export function toISODateLocal(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** Parse YYYY-MM-DD como data local (evita new Date(str) que interpreta como UTC) */
+export function parseISODateLocal(str: string): Date | null {
+  if (!str || str.length < 10) return null
+  const parts = str.slice(0, 10).split('-').map(Number)
+  if (parts.length !== 3 || parts.some(isNaN)) return null
+  const [y, m, d] = parts
+  const date = new Date(y, m - 1, d)
+  if (isNaN(date.getTime())) return null
+  return date
+}
+
+/** Formato YYYY-MM-DD para Supabase (usa horário local) */
 export function toISODate(d: Date): string {
-  return format(d, 'yyyy-MM-dd')
+  return toISODateLocal(d)
 }
 
 const MESES_NOME_INDEX: Record<string, number> = {

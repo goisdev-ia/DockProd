@@ -20,6 +20,9 @@ export interface DadosWhatsApp {
   colaborador: string
   /** Matrícula do colaborador (tabela colaboradores), não o id */
   matricula: string
+  /** Função do colaborador (ex.: Aux. Exp/Receb) */
+  funcao: string
+  /** Filial no formato "0102 - Trielo CD S.F BA" (código + nome) */
   filial: string
   mes: string
   pesoTotal: number
@@ -29,23 +32,27 @@ export interface DadosWhatsApp {
   kgHs: number
   volHs: number
   pltHs: number
-  erros: number
-  vlrKgHs: number
-  vlrVolHs: number
+  /** Acuracidade de estoque (%) */
+  acuracidade: number | null
+  /** Checklist (%) */
+  checklist: number | null
+  /** Perdas (%) */
+  perda: number | null
+  /** Valor R$ Acuracidade (bônus) */
+  vlrAcuracidade: number
+  /** Valor R$ Checklist (bônus) */
+  vlrChecklist: number
+  /** Valor R$ Plt/Hs (bônus) */
   vlrPltHs: number
+  /** Valor R$ Perdas (bônus) */
+  vlrPerda: number
   prodBruta: number
-  percentualErros: number
   percentualDescontos: number
   prodFinal: number
   meta: number
-  /** Percentual de atingimento da meta (ex.: 95,5) */
+  /** Percentual de atingimento da meta (ex.: 60,00) */
   percentualAtingimento?: number
-  /** Detalhe por data: erros separação e erros entregas + observação */
-  detalheErros?: {
-    errosSeparacao: ErroSeparacaoItem[]
-    errosEntregas: ErroEntregaItem[]
-  }
-  /** Resumo dos descontos (tipos, % e observação) para a seção entre VALORES e RESULTADO FINAL */
+  /** Resumo dos descontos (tipos, % e observação) */
   resumoDescontos?: {
     itens: ResumoDescontoItem[]
     observacao?: string | null
@@ -60,33 +67,40 @@ function formatNumber(value: number): string {
 }
 
 export function gerarRelatorioWhatsApp(dados: DadosWhatsApp): string {
-  const atingiuMeta = dados.prodFinal >= dados.meta
+  const pct = dados.percentualAtingimento ?? 0
+  let status: string
+  if (pct >= 100) status = String.fromCodePoint(0x2705) + ' *META ATINGIDA!*'
+  else if (pct > 0) status = String.fromCodePoint(0x26a0, 0xfe0f) + ' *META ATINGIDA PARCIALMENTE*'
+  else status = String.fromCodePoint(0x274c) + ' *META NÃO ATINGIDA*'
 
-  // Emojis criados usando String.fromCodePoint para melhor compatibilidade (evita na URL)
   const emoji = {
-    grafico: String.fromCodePoint(0x1f4ca),           // 📊
-    predio: String.fromCodePoint(0x1f3e2),            // 🏢
-    calendario: String.fromCodePoint(0x1f4c5),        // 📅
-    pessoa: String.fromCodePoint(0x1f464),             // 👤
-    id: String.fromCodePoint(0x1f194),                // 🆔
-    caixa: String.fromCodePoint(0x1f4e6),             // 📦
-    balanca: String.fromCodePoint(0x2696, 0xfe0f),     // ⚖️
-    regua: String.fromCodePoint(0x1f4cf),             // 📐
-    caminhao: String.fromCodePoint(0x1f69a),          // 🚛
-    relogio: String.fromCodePoint(0x23f1, 0xfe0f),    // ⏱️
-    graficoCrescente: String.fromCodePoint(0x1f4c8), // 📈
-    aviso: String.fromCodePoint(0x26a0, 0xfe0f),      // ⚠️
-    circuloVermelho: String.fromCodePoint(0x1f534),  // 🔴
-    dinheiro: String.fromCodePoint(0x1f4b0),           // 💰
-    notaDolar: String.fromCodePoint(0x1f4b5),         // 💵
-    alvo: String.fromCodePoint(0x1f3af),              // 🎯
-    trofeu: String.fromCodePoint(0x1f3c6),            // 🏆
-    checkVerde: String.fromCodePoint(0x2705),         // ✅
-    xVermelho: String.fromCodePoint(0x274c),          // ❌
-    seta: String.fromCodePoint(0x1f4c9),              // 📉
+    grafico: String.fromCodePoint(0x1f4ca),
+    predio: String.fromCodePoint(0x1f3e2),
+    calendario: String.fromCodePoint(0x1f4c5),
+    pessoa: String.fromCodePoint(0x1f464),
+    badge: String.fromCodePoint(0x1faaa),
+    id: String.fromCodePoint(0x1f194),
+    maleta: String.fromCodePoint(0x1f4bc),
+    caixa: String.fromCodePoint(0x1f4e6),
+    balanca: String.fromCodePoint(0x2696, 0xfe0f),
+    regua: String.fromCodePoint(0x1f4cf),
+    caminhao: String.fromCodePoint(0x1f69a),
+    relogio: String.fromCodePoint(0x23f1, 0xfe0f),
+    graficoCrescente: String.fromCodePoint(0x1f4c8),
+    alvo: String.fromCodePoint(0x1f3af),
+    dinheiro: String.fromCodePoint(0x1f4b0),
+    notaDolar: String.fromCodePoint(0x1f4b5),
+    trofeu: String.fromCodePoint(0x1f3c6),
+    aviso: String.fromCodePoint(0x26a0, 0xfe0f),
+    seta: String.fromCodePoint(0x1f4c9),
+    lixeira: String.fromCodePoint(0x1f5d1, 0xfe0f),
+    clipboard: String.fromCodePoint(0x1f4cb),
   }
 
-  const linhasSeparadoras = String.fromCodePoint(0x2501).repeat(22) // ━━━━━
+  const linhasSeparadoras = String.fromCodePoint(0x2501).repeat(22)
+  const acuStr = dados.acuracidade != null ? formatNumber(dados.acuracidade) + ' %' : '—'
+  const chkStr = dados.checklist != null ? formatNumber(dados.checklist) + ' %' : '—'
+  const perdaStr = dados.perda != null ? formatNumber(dados.perda) + ' %' : '—'
 
   return `
 *${emoji.grafico} RESULTADO DA PRODUTIVIDADE*
@@ -99,8 +113,9 @@ ${linhasSeparadoras}
 *${emoji.pessoa} COLABORADOR*
 ${linhasSeparadoras}
 
-*Nome:* ${dados.colaborador}
+*${emoji.badge} Nome:* ${dados.colaborador}
 *${emoji.id} Matrícula:* ${dados.matricula}
+*${emoji.maleta} Função:* ${dados.funcao || '—'}
 
 ${linhasSeparadoras}
 *${emoji.caixa} PRODUÇÃO*
@@ -120,36 +135,21 @@ ${linhasSeparadoras}
 *${emoji.caminhao} Plt/Hs:* ${formatNumber(dados.pltHs)}
 
 ${linhasSeparadoras}
-*${emoji.aviso} ERROS*
+*${emoji.alvo} RESULTADOS*
 ${linhasSeparadoras}
 
-${dados.detalheErros
-  ? (() => {
-      const sep = dados.detalheErros!.errosSeparacao
-      const ent = dados.detalheErros!.errosEntregas
-      const linhas: string[] = []
-      if (sep.length > 0) {
-        linhas.push('*Erros Separação:*')
-        sep.forEach((s) => linhas.push(`  ${s.data} - ${s.quantidade} erro(s)`))
-      }
-      if (ent.length > 0) {
-        linhas.push('*Erros Entregas:*')
-        ent.forEach((e) =>
-          linhas.push(e.observacao ? `  ${e.data} - ${e.quantidade} erro(s) - Obs: ${e.observacao}` : `  ${e.data} - ${e.quantidade} erro(s)`)
-        )
-      }
-      if (linhas.length === 0) linhas.push('Nenhum erro registrado.')
-      return linhas.join('\n')
-    })()
-  : `*${emoji.circuloVermelho} Total de Erros:* ${dados.erros}`}
+*${emoji.caixa} Acuracidade de estoque:* ${acuStr}
+*${emoji.clipboard} Checklist:* ${chkStr}
+*${emoji.lixeira} Perdas:* ${perdaStr}
 
 ${linhasSeparadoras}
 *${emoji.dinheiro} VALORES*
 ${linhasSeparadoras}
 
-*${emoji.notaDolar} Vlr Kg/Hs:* R$ ${formatNumber(dados.vlrKgHs)}
-*${emoji.notaDolar} Vlr Vol/Hs:* R$ ${formatNumber(dados.vlrVolHs)}
+*${emoji.notaDolar} Vlr Acuracidade:* R$ ${formatNumber(dados.vlrAcuracidade)}
+*${emoji.notaDolar} Vlr Checklist:* R$ ${formatNumber(dados.vlrChecklist)}
 *${emoji.notaDolar} Vlr Plt/Hs:* R$ ${formatNumber(dados.vlrPltHs)}
+*${emoji.notaDolar} Vlr Perdas:* R$ ${formatNumber(dados.vlrPerda)}
 
 ${linhasSeparadoras}
 *${emoji.seta} RESUMO DESCONTOS*
@@ -165,13 +165,12 @@ ${linhasSeparadoras}
 ${linhasSeparadoras}
 
 *${emoji.grafico} Prod. Bruta:* ${formatNumber(dados.prodBruta)}
-*${emoji.aviso} % Erros:* ${formatNumber(dados.percentualErros)}%
 *${emoji.seta} % Descontos:* ${formatNumber(dados.percentualDescontos)}%
 
 *${emoji.trofeu} Prod. Final:* *${formatNumber(dados.prodFinal)}*
 *${emoji.alvo} Atingimento da meta:* ${formatNumber(dados.percentualAtingimento ?? 0)}%
 
-*Status:* ${atingiuMeta ? `${emoji.checkVerde} *META ATINGIDA!*` : `${emoji.aviso} *META NÃO ATINGIDA*`}
+*Status:* ${status}
 
 ${linhasSeparadoras}
 

@@ -10,11 +10,15 @@ import { Button } from '@/components/ui/button'
 import {
   getDatasPorPeriodo,
   toISODate,
+  toISODateLocal,
   parseISODateLocal,
   getMesAnoPorPeriodo,
+  getMesNome,
+  getDatasPorMesAno,
   type PeriodoOption,
 } from '@/lib/dashboard-filters'
 import { contarPaletes, intervalToHours } from '@/lib/calculos'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import {
   DollarSign,
   TrendingUp,
@@ -173,6 +177,8 @@ export default function DashboardPage() {
   const [dataCargaFim, setDataCargaFim] = useState<string>('')
   const [colaboradorIds, setColaboradorIds] = useState<string[]>([])
   const [filtroFornecedor, setFiltroFornecedor] = useState('__TODOS__')
+  const [filtroMes, setFiltroMes] = useState<string>(String(new Date().getMonth() + 1))
+  const [filtroAno, setFiltroAno] = useState<string>(String(new Date().getFullYear()))
   const [periodoEvolucao, setPeriodoEvolucao] = useState<PeriodoOption>('trimestre_atual')
   const [filiais, setFiliais] = useState<{ id: string; nome: string; codigo?: string }[]>([])
   const [colaboradores, setColaboradores] = useState<{ id: string; nome: string }[]>([])
@@ -259,14 +265,26 @@ export default function DashboardPage() {
     return getDatasPorPeriodo(periodoSelecionado as PeriodoOption)
   }, [periodoSelecionado, dataCargaInicio, dataCargaFim])
 
-  const filtrosPrincipal = useMemo(() => ({
-    id_filial: idFilial,
-    data_inicio: toISODate(datasPrincipal.data_inicio),
-    data_fim: toISODate(datasPrincipal.data_fim),
-    busca: buscaDebounced?.trim() || '',
-    id_colaborador: colaboradorIds,
-    fornecedor: (filtroFornecedor && filtroFornecedor !== '__TODOS__') ? filtroFornecedor.trim() : null,
-  }), [idFilial, datasPrincipal, buscaDebounced, colaboradorIds, filtroFornecedor])
+  const filtrosPrincipal = useMemo(() => {
+    let data_inicio = toISODate(datasPrincipal.data_inicio)
+    let data_fim = toISODate(datasPrincipal.data_fim)
+
+    if (filtroMes !== 'todos' && filtroAno) {
+      const mesNome = getMesNome(Number(filtroMes) - 1)
+      const range = getDatasPorMesAno(mesNome, Number(filtroAno))
+      data_inicio = toISODate(range.dataInicio)
+      data_fim = toISODate(range.dataFim)
+    }
+
+    return {
+      id_filial: idFilial,
+      data_inicio,
+      data_fim,
+      busca: buscaDebounced?.trim() || '',
+      id_colaborador: colaboradorIds,
+      fornecedor: (filtroFornecedor && filtroFornecedor !== '__TODOS__') ? filtroFornecedor.trim() : null,
+    }
+  }, [idFilial, datasPrincipal, buscaDebounced, colaboradorIds, filtroFornecedor, filtroMes, filtroAno])
 
   const carregarCargasPorColaborador = useCallback(async () => {
     const supabase = createClient()
@@ -275,16 +293,17 @@ export default function DashboardPage() {
       const mesInicio = new Date(ano, mes - 1, 1)
       const mesFim = new Date(ano, mes, 0)
 
-      let query = supabase
-        .from('recebimentos')
-        .select('usuario_recebto, id_coleta_recebimento')
-        .gte('dta_receb', toISODate(mesInicio))
-        .lte('dta_receb', toISODate(mesFim))
+      const data = await fetchAllRows<{ usuario_recebto?: string; id_coleta_recebimento?: string }>(() => {
+        let query = supabase
+          .from('recebimentos')
+          .select('usuario_recebto, id_coleta_recebimento')
+          .gte('dta_receb', toISODate(mesInicio))
+          .lte('dta_receb', toISODate(mesFim))
 
-      if (idFilial) query = query.eq('id_filial', idFilial)
-      if (buscaDebounced) query = query.ilike('usuario_recebto', `%${buscaDebounced}%`)
-
-      const { data } = await query
+        if (idFilial) query = query.eq('id_filial', idFilial)
+        if (buscaDebounced) query = query.ilike('usuario_recebto', `%${buscaDebounced}%`)
+        return query
+      })
 
       if (data) {
         const grouped = (data as { usuario_recebto?: string; id_coleta_recebimento?: string }[]).reduce((acc, row) => {
@@ -312,16 +331,28 @@ export default function DashboardPage() {
       const { data_inicio, data_fim, id_filial, fornecedor, busca } = filtrosPrincipal
 
       // Recebimentos no período
-      let qRec = supabase
-        .from('recebimentos')
-        .select('id, id_filial, filial, fornecedor, usuario_recebto, dta_receb, nota_fiscal, id_coleta_recebimento, peso_liquido_recebido, qtd_caixas_recebidas')
-        .gte('dta_receb', data_inicio)
-        .lte('dta_receb', data_fim)
-      if (id_filial) qRec = qRec.eq('id_filial', id_filial)
-      if (fornecedor) qRec = qRec.eq('fornecedor', fornecedor)
-      if (busca) qRec = qRec.or(`fornecedor.ilike.%${busca}%,coleta.ilike.%${busca}%`)
-
-      const { data: recebimentos } = await qRec
+      const recebimentos = await fetchAllRows<{
+        id: string
+        id_filial: string | null
+        filial: string | null
+        fornecedor: string | null
+        usuario_recebto: string | null
+        dta_receb: string | null
+        nota_fiscal: string | null
+        id_coleta_recebimento: string | null
+        peso_liquido_recebido: number | null
+        qtd_caixas_recebidas: number | null
+      }>(() => {
+        let qRec = supabase
+          .from('recebimentos')
+          .select('id, id_filial, filial, fornecedor, usuario_recebto, dta_receb, nota_fiscal, id_coleta_recebimento, peso_liquido_recebido, qtd_caixas_recebidas')
+          .gte('dta_receb', data_inicio)
+          .lte('dta_receb', data_fim)
+        if (id_filial) qRec = qRec.eq('id_filial', id_filial)
+        if (fornecedor) qRec = qRec.eq('fornecedor', fornecedor)
+        if (busca) qRec = qRec.or(`fornecedor.ilike.%${busca}%,coleta.ilike.%${busca}%`)
+        return qRec
+      })
       const recList = (recebimentos ?? []) as Array<{
         id: string
         id_filial: string | null
@@ -775,6 +806,42 @@ export default function DashboardPage() {
                   <SelectContent>
                     {PERIODO_OPCOES.map((op) => (
                       <SelectItem key={op.value} value={op.value}>{op.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Mês</Label>
+                <Select value={filtroMes} onValueChange={setFiltroMes}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Mês" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    <SelectItem value="1">Janeiro</SelectItem>
+                    <SelectItem value="2">Fevereiro</SelectItem>
+                    <SelectItem value="3">Março</SelectItem>
+                    <SelectItem value="4">Abril</SelectItem>
+                    <SelectItem value="5">Maio</SelectItem>
+                    <SelectItem value="6">Junho</SelectItem>
+                    <SelectItem value="7">Julho</SelectItem>
+                    <SelectItem value="8">Agosto</SelectItem>
+                    <SelectItem value="9">Setembro</SelectItem>
+                    <SelectItem value="10">Outubro</SelectItem>
+                    <SelectItem value="11">Novembro</SelectItem>
+                    <SelectItem value="12">Dezembro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Ano</Label>
+                <Select value={filtroAno} onValueChange={setFiltroAno}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Ano" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[2024, 2025, 2026].map(year => (
+                      <SelectItem key={year} value={String(year)}>{year}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

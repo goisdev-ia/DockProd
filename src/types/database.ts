@@ -21,6 +21,14 @@ export interface Colaborador {
   updated_at: string
 }
 
+export interface Funcao {
+  id: string
+  nome: string
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface Usuario {
   id: string
   nome: string

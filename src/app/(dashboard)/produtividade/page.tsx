@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Edit, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ChevronsUpDown, Columns3 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { FilterToggle } from '@/components/FilterToggle'
 import { registrarLog } from '@/lib/logs'
 import { formatDateBR } from '@/lib/date-utils'
@@ -52,7 +53,7 @@ export interface DadoCargaDock {
 }
 
 const COLUNAS_PADRAO: (keyof DadoCargaDock)[] = [
-  'id_coleta_recebimento', 'filial', 'coleta', 'fornec', 'dta_receb', 'qtd_caixas', 'peso_liquido', 'qtd_paletes',
+  'filial', 'coleta', 'fornec', 'dta_receb', 'qtd_caixas', 'peso_liquido', 'qtd_paletes',
   'hora_inicial', 'hora_final', 'tempo_horas', 'kg_hs', 'vol_hs', 'plt_hs', 'observacao',
 ]
 
@@ -92,6 +93,8 @@ export default function ProdutividadePage() {
   const [filtroDataFim, setFiltroDataFim] = useState('')
   const [filtroPltHsMin, setFiltroPltHsMin] = useState('')
   const [filtroPltHsMax, setFiltroPltHsMax] = useState('')
+  const [filtroMes, setFiltroMes] = useState<string>('todos')
+  const [filtroAno, setFiltroAno] = useState<string>('todos')
   const [buscaDebounced, setBuscaDebounced] = useState('')
   const [ordenacao, setOrdenacao] = useState<{ coluna: keyof DadoCargaDock | null; direcao: 'asc' | 'desc' }>({ coluna: 'dta_receb', direcao: 'desc' })
   const [colunasVisiveis, setColunasVisiveis] = useState<string[]>(COLUNAS_PADRAO.filter((c) => !['id_primeiro_recebimento', 'id_tempo', 'id_filial'].includes(c)) as string[])
@@ -102,6 +105,10 @@ export default function ProdutividadePage() {
   const [horaFinalEdit, setHoraFinalEdit] = useState('')
   const [confirmExcluirOpen, setConfirmExcluirOpen] = useState(false)
   const [idExcluir, setIdExcluir] = useState<string | null>(null)
+
+  // Time Modal specific
+  const [isTimeModalOpen, setIsTimeModalOpen] = useState(false)
+  const [loadingSave, setLoadingSave] = useState(false)
 
   const totalPaginas = Math.ceil(dadosFiltrados.length / REGISTROS_POR_PAGINA)
   const dadosOrdenados = (() => {
@@ -150,42 +157,42 @@ export default function ProdutividadePage() {
 
       // Associação por ordem de coleta: tempo tem id_coleta_recebimento = recebimentos.coleta (PROCV no upload). Hora Inicial, Hora Final e Tempo (h) vêm da linha de tempo com a mesma ordem.
       const tempoPorColeta = new Map<string, { id: string; inicio: string | null; final: string | null; tempo_recebimento: string | null }>()
-      ;(tempoList ?? []).forEach((t: TempoRow) => {
-        const key = t.id_coleta_recebimento ?? ''
-        if (key && !tempoPorColeta.has(key)) {
-          tempoPorColeta.set(key, {
-            id: t.id,
-            inicio: t.inicio_recebimento ? (typeof t.inicio_recebimento === 'string' ? t.inicio_recebimento : null) : null,
-            final: t.final_recebimento ? (typeof t.final_recebimento === 'string' ? t.final_recebimento : null) : null,
-            tempo_recebimento: t.tempo_recebimento ? String(t.tempo_recebimento) : null,
-          })
-        }
-      })
+        ; (tempoList ?? []).forEach((t: TempoRow) => {
+          const key = t.id_coleta_recebimento ?? ''
+          if (key && !tempoPorColeta.has(key)) {
+            tempoPorColeta.set(key, {
+              id: t.id,
+              inicio: t.inicio_recebimento ? (typeof t.inicio_recebimento === 'string' ? t.inicio_recebimento : null) : null,
+              final: t.final_recebimento ? (typeof t.final_recebimento === 'string' ? t.final_recebimento : null) : null,
+              tempo_recebimento: t.tempo_recebimento ? String(t.tempo_recebimento) : null,
+            })
+          }
+        })
 
       const grupos = new Map<string, { ids: string[]; id_filial: string | null; filial: string; coleta: string; fornec: string; dta_receb: string; qtd_caixas: number; peso_liquido: number; qtd_caixas_arr: number[]; observacao: string | null }>()
-      ;(recebimentos ?? []).forEach((r: RecebimentoRow) => {
-        const key = r.id_coleta_recebimento ?? r.id
-        if (!grupos.has(key)) {
-          grupos.set(key, {
-            ids: [],
-            id_filial: r.id_filial ?? null,
-            filial: r.filial ?? '',
-            coleta: r.coleta ?? '',
-            fornec: r.fornecedor ?? '',
-            dta_receb: r.dta_receb ? String(r.dta_receb).slice(0, 10) : '',
-            qtd_caixas: 0,
-            peso_liquido: 0,
-            qtd_caixas_arr: [],
-            observacao: r.observacao ?? null,
-          })
-        }
-        const g = grupos.get(key)!
-        g.ids.push(r.id)
-        g.qtd_caixas += Number(r.qtd_caixas_recebidas ?? 0)
-        g.peso_liquido += Number(r.peso_liquido_recebido ?? 0)
-        g.qtd_caixas_arr.push(Number(r.qtd_caixas_recebidas ?? 0))
-        if (r.observacao) g.observacao = r.observacao
-      })
+        ; (recebimentos ?? []).forEach((r: RecebimentoRow) => {
+          const key = r.id_coleta_recebimento ?? r.id
+          if (!grupos.has(key)) {
+            grupos.set(key, {
+              ids: [],
+              id_filial: r.id_filial ?? null,
+              filial: r.filial ?? '',
+              coleta: r.coleta ?? '',
+              fornec: r.fornecedor ?? '',
+              dta_receb: r.dta_receb ? String(r.dta_receb).slice(0, 10) : '',
+              qtd_caixas: 0,
+              peso_liquido: 0,
+              qtd_caixas_arr: [],
+              observacao: r.observacao ?? null,
+            })
+          }
+          const g = grupos.get(key)!
+          g.ids.push(r.id)
+          g.qtd_caixas += Number(r.qtd_caixas_recebidas ?? 0)
+          g.peso_liquido += Number(r.peso_liquido_recebido ?? 0)
+          g.qtd_caixas_arr.push(Number(r.qtd_caixas_recebidas ?? 0))
+          if (r.observacao) g.observacao = r.observacao
+        })
 
       const rows: DadoCargaDock[] = []
       grupos.forEach((g, idColeta) => {
@@ -282,6 +289,18 @@ export default function ProdutividadePage() {
       const isUuid = filtroFilial.length === 36 && filtroFilial.includes('-')
       f = f.filter((d) => (isUuid && d.id_filial === filtroFilial) || (!isUuid && d.filial && d.filial.includes(filtroFilial)))
     }
+    if (filtroAno && filtroAno !== 'todos') {
+      f = f.filter((d) => {
+        const dDate = new Date(d.dta_receb)
+        return dDate.getUTCFullYear() === Number(filtroAno)
+      })
+    }
+    if (filtroMes && filtroMes !== 'todos') {
+      f = f.filter((d) => {
+        const dDate = new Date(d.dta_receb)
+        return (dDate.getUTCMonth() + 1) === Number(filtroMes)
+      })
+    }
     if (filtroDataInicio) f = f.filter((d) => d.dta_receb >= filtroDataInicio)
     if (filtroDataFim) f = f.filter((d) => d.dta_receb <= filtroDataFim)
     if (buscaDebounced) {
@@ -298,7 +317,7 @@ export default function ProdutividadePage() {
     }
     setDadosFiltrados(f)
     setPaginaAtual(1)
-  }, [dados, filtroFilial, filtroDataInicio, filtroDataFim, buscaDebounced, filtroPltHsMin, filtroPltHsMax])
+  }, [dados, filtroFilial, filtroDataInicio, filtroDataFim, buscaDebounced, filtroPltHsMin, filtroPltHsMax, filtroMes, filtroAno])
 
   useEffect(() => {
     aplicarFiltros()
@@ -311,6 +330,8 @@ export default function ProdutividadePage() {
     setFiltroDataFim('')
     setFiltroPltHsMin('')
     setFiltroPltHsMax('')
+    setFiltroMes('todos')
+    setFiltroAno('todos')
     setPaginaAtual(1)
   }
 
@@ -339,22 +360,99 @@ export default function ProdutividadePage() {
 
   const salvarEdicao = async () => {
     if (!dadoEditando) return
+    setLoadingSave(true)
     try {
-      await supabase.from('recebimentos').update({ observacao: observacaoEdit.trim() || null }).eq('id', dadoEditando.id_primeiro_recebimento)
+      await supabase.from('recebimentos').update({ observacao: observacaoEdit.trim() || null }).eq('id_coleta_recebimento', dadoEditando.id_coleta_recebimento)
       if (dadoEditando.id_tempo && (horaInicialEdit || horaFinalEdit)) {
-        const hi = horaInicialEdit ? `${horaInicialEdit.padEnd(5, ':00').slice(0, 5)}:00` : null
-        const hf = horaFinalEdit ? `${horaFinalEdit.padEnd(5, ':00').slice(0, 5)}:00` : null
-        const updates: { inicio_recebimento?: string; final_recebimento?: string } = {}
-        if (hi) updates.inicio_recebimento = new Date(`1970-01-01T${hi}`).toISOString()
-        if (hf) updates.final_recebimento = new Date(`1970-01-01T${hf}`).toISOString()
-        if (Object.keys(updates).length) await supabase.from('tempo').update(updates).eq('id', dadoEditando.id_tempo)
+        const hi = horaInicialEdit ? (horaInicialEdit.length === 5 ? `${horaInicialEdit}:00` : horaInicialEdit) : null
+        const hf = horaFinalEdit ? (horaFinalEdit.length === 5 ? `${horaFinalEdit}:00` : horaFinalEdit) : null
+
+        const updates: any = {}
+
+        if (hi && hf) {
+          const startDate = new Date(dadoEditando.dta_receb)
+          const [sh, sm] = hi.split(':')
+          startDate.setUTCHours(parseInt(sh), parseInt(sm), 0, 0)
+
+          const endDate = new Date(dadoEditando.dta_receb)
+          const [eh, em] = hf.split(':')
+          endDate.setUTCHours(parseInt(eh), parseInt(em), 0, 0)
+
+          updates.inicio_recebimento = startDate.toISOString()
+          updates.final_recebimento = endDate.toISOString()
+
+          const diffMs = endDate.getTime() - startDate.getTime()
+          const diffHrs = diffMs / (1000 * 60 * 60)
+
+          const totalSeconds = Math.max(0, Math.floor(diffMs / 1000))
+          const h = Math.floor(totalSeconds / 3600)
+          const m = Math.floor((totalSeconds % 3600) / 60)
+          const s = totalSeconds % 60
+          updates.tempo_recebimento = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+          updates.tempo_horas = diffHrs > 0 ? diffHrs : 0
+
+          if (diffHrs > 0) {
+            updates.kg_hs = dadoEditando.peso_liquido / diffHrs
+            updates.vol_hs = dadoEditando.qtd_caixas / diffHrs
+            updates.plt_hs = dadoEditando.qtd_paletes / diffHrs
+          } else {
+            updates.kg_hs = 0
+            updates.vol_hs = 0
+            updates.plt_hs = 0
+          }
+        } else {
+          // If only one or neither is provided, clear time-related fields
+          if (hi) {
+            const d = new Date(dadoEditando.dta_receb);
+            d.setUTCHours(parseInt(hi.split(':')[0]), parseInt(hi.split(':')[1]), 0, 0);
+            updates.inicio_recebimento = d.toISOString();
+          } else {
+            updates.inicio_recebimento = null;
+          }
+
+          if (hf) {
+            const d = new Date(dadoEditando.dta_receb);
+            d.setUTCHours(parseInt(hf.split(':')[0]), parseInt(hf.split(':')[1]), 0, 0);
+            updates.final_recebimento = d.toISOString();
+          } else {
+            updates.final_recebimento = null;
+          }
+
+          updates.tempo_recebimento = null;
+          updates.tempo_horas = null;
+          updates.kg_hs = null;
+          updates.vol_hs = null;
+          updates.plt_hs = null;
+        }
+
+        if (Object.keys(updates).length) {
+          const { error } = await supabase.from('tempo').update(updates).eq('id', dadoEditando.id_tempo)
+          if (error) throw error
+        }
       }
-      registrarLog(supabase, 'Editou produtividade (detalhamento)', dadoEditando.id_coleta_recebimento)
-      setDialogAberto(false)
+      registrarLog(supabase, 'Editou produtividade (tempo)', dadoEditando.id_coleta_recebimento)
+      setIsTimeModalOpen(false)
       carregarDados()
     } catch (e) {
       console.error(e)
       alert('Erro ao salvar')
+    } finally {
+      setLoadingSave(false)
+    }
+  }
+
+  const salvarObservacao = async (idColeta: string, novaObs: string) => {
+    try {
+      const { error } = await supabase
+        .from('recebimentos')
+        .update({ observacao: novaObs.trim() || null })
+        .eq('id_coleta_recebimento', idColeta)
+      if (error) throw error
+      registrarLog(supabase, 'Editou observação produtividade', idColeta)
+      // Atualizar estado local para refletir a mudança em todas as linhas sem reload
+      setDados(prev => prev.map(d => d.id_coleta_recebimento === idColeta ? { ...d, observacao: novaObs } : d))
+    } catch (e) {
+      console.error('Erro ao salvar observação:', e)
     }
   }
 
@@ -435,6 +533,43 @@ export default function ProdutividadePage() {
               <Input type="number" placeholder="Min" value={filtroPltHsMin} onChange={(e) => setFiltroPltHsMin(e.target.value)} step="0.1" />
               <Input type="number" placeholder="Max" value={filtroPltHsMax} onChange={(e) => setFiltroPltHsMax(e.target.value)} step="0.1" />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Mês</Label>
+            <Select value={filtroMes} onValueChange={setFiltroMes}>
+              <SelectTrigger>
+                <SelectValue placeholder="Mês" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="1">Janeiro</SelectItem>
+                <SelectItem value="2">Fevereiro</SelectItem>
+                <SelectItem value="3">Março</SelectItem>
+                <SelectItem value="4">Abril</SelectItem>
+                <SelectItem value="5">Maio</SelectItem>
+                <SelectItem value="6">Junho</SelectItem>
+                <SelectItem value="7">Julho</SelectItem>
+                <SelectItem value="8">Agosto</SelectItem>
+                <SelectItem value="9">Setembro</SelectItem>
+                <SelectItem value="10">Outubro</SelectItem>
+                <SelectItem value="11">Novembro</SelectItem>
+                <SelectItem value="12">Dezembro</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Ano</Label>
+            <Select value={filtroAno} onValueChange={setFiltroAno}>
+              <SelectTrigger>
+                <SelectValue placeholder="Ano" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                {[2024, 2025, 2026].map(year => (
+                  <SelectItem key={year} value={String(year)}>{year}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </FilterToggle>
@@ -548,13 +683,52 @@ export default function ProdutividadePage() {
                         const isNum = ['qtd_caixas', 'peso_liquido', 'qtd_paletes', 'tempo_horas', 'kg_hs', 'vol_hs', 'plt_hs'].includes(col)
                         const display = key === 'dta_receb' && val ? formatDateBR(String(val)) : isNum && typeof val === 'number' ? (key === 'peso_liquido' || key === 'qtd_paletes' || key === 'kg_hs' || key === 'vol_hs' || key === 'plt_hs' ? Number(val).toFixed(2) : key === 'tempo_horas' ? Number(val).toFixed(2) : Number(val).toFixed(0)) : val != null ? String(val) : '—'
                         const tempoAlto = key === 'tempo_horas' && val != null && Number(val) >= 1.5
+                        const highlighterCols = ['hora_inicial', 'hora_final', 'tempo_horas', 'kg_hs', 'vol_hs', 'plt_hs']
+                        const isEmpty = display === '—' && highlighterCols.includes(key)
                         const baseClass = key === 'id_coleta_recebimento' ? 'font-mono text-xs' :
                           key === 'filial' || key === 'fornec' ? 'text-xs max-w-[120px] truncate' :
-                          isNum ? 'text-right' : ''
+                            isNum ? 'text-right' : ''
+
+                        if (key === 'observacao') {
+                          return (
+                            <TableCell key={col} className="p-1 min-w-[200px]">
+                              <Input
+                                defaultValue={val || ''}
+                                className="h-8 text-xs"
+                                onBlur={(e) => {
+                                  if (e.target.value !== (val || '')) {
+                                    salvarObservacao(dado.id_coleta_recebimento, e.target.value)
+                                  }
+                                }}
+                              />
+                            </TableCell>
+                          )
+                        }
+
+                        if (key === 'tempo_horas') {
+                          return (
+                            <TableCell
+                              key={col}
+                              className={cn(baseClass, "cursor-pointer hover:bg-muted/50 transition-colors py-1", tempoAlto && 'text-red-600 font-bold', isEmpty && 'text-orange-500 font-bold')}
+                              onClick={() => {
+                                setDadoEditando(dado)
+                                setHoraInicialEdit(dado.hora_inicial || '')
+                                setHoraFinalEdit(dado.hora_final || '')
+                                setIsTimeModalOpen(true)
+                              }}
+                            >
+                              <div className="flex items-center justify-end gap-1">
+                                {display}
+                                <Edit className="h-3 w-3 opacity-30" />
+                              </div>
+                            </TableCell>
+                          )
+                        }
+
                         return (
                           <TableCell
                             key={col}
-                            className={baseClass + (tempoAlto ? ' text-red-600 font-bold' : '')}
+                            className={cn(baseClass, tempoAlto && 'text-red-600 font-bold', isEmpty && 'text-orange-500 font-bold')}
                           >
                             {display}
                           </TableCell>
@@ -562,8 +736,7 @@ export default function ProdutividadePage() {
                       })}
                       <TableCell>
                         <div className="flex justify-center gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => abrirEdicao(dado)}><Edit className="w-4 h-4" /></Button>
-                          <Button size="sm" variant="ghost" onClick={() => abrirConfirmExcluir(dado.id_coleta_recebimento)}><Trash2 className="w-4 h-4 text-red-600" /></Button>
+                          <Button size="sm" variant="ghost" onClick={() => abrirConfirmExcluir(dado.id_coleta_recebimento)}><Trash2 className="h-4 w-4 text-red-600" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -590,40 +763,50 @@ export default function ProdutividadePage() {
         </CardContent>
       </Card>
 
-      <Dialog open={dialogAberto} onOpenChange={setDialogAberto}>
-        {dialogAberto && dadoEditando && (
+      <Dialog open={isTimeModalOpen} onOpenChange={setIsTimeModalOpen}>
+        {isTimeModalOpen && dadoEditando && (
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Editar Coleta</DialogTitle>
-              <DialogDescription>Coleta: {dadoEditando.coleta} · {dadoEditando.fornec}</DialogDescription>
+              <DialogTitle>Ajustar Horário do Recebimento</DialogTitle>
+              <DialogDescription>
+                Coleta: {dadoEditando.coleta} · {dadoEditando.fornec}
+                <br />
+                O tempo total será recalculado automaticamente.
+              </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label>Observação</Label>
-                <Input value={observacaoEdit} onChange={(e) => setObservacaoEdit(e.target.value)} placeholder="Observação" />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Hora Inicial</Label>
+                  <Input
+                    type="time"
+                    value={horaInicialEdit}
+                    onChange={(e) => setHoraInicialEdit(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Hora Final</Label>
+                  <Input
+                    type="time"
+                    value={horaFinalEdit}
+                    onChange={(e) => setHoraFinalEdit(e.target.value)}
+                  />
+                </div>
               </div>
-              {dadoEditando.id_tempo && (
-                <>
-                  <div className="space-y-2">
-                    <Label>Hora Inicial</Label>
-                    <Input type="time" value={horaInicialEdit} onChange={(e) => setHoraInicialEdit(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Hora Final</Label>
-                    <Input type="time" value={horaFinalEdit} onChange={(e) => setHoraFinalEdit(e.target.value)} />
-                  </div>
-                </>
-              )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogAberto(false)}>Cancelar</Button>
-              <Button onClick={salvarEdicao} className="bg-green-600 hover:bg-green-700">Salvar</Button>
+              <Button variant="outline" onClick={() => setIsTimeModalOpen(false)} disabled={loadingSave}>
+                Cancelar
+              </Button>
+              <Button onClick={salvarEdicao} className="bg-green-600 hover:bg-green-700" disabled={loadingSave}>
+                {loadingSave ? 'Salvando...' : 'Atualizar Horários'}
+              </Button>
             </DialogFooter>
           </DialogContent>
         )}
       </Dialog>
 
       <ConfirmDialog open={confirmExcluirOpen} onOpenChange={(o) => { setConfirmExcluirOpen(o); if (!o) setIdExcluir(null) }} title="Excluir coleta?" message="Todos os recebimentos e o registro de tempo desta coleta serão removidos." onConfirm={executarExcluir} confirmLabel="Sim" cancelLabel="Não" />
-    </div>
+    </div >
   )
 }

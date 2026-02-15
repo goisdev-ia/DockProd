@@ -13,11 +13,10 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Edit, Trash2, UserPlus, Download, Upload, Building2, Briefcase } from 'lucide-react'
-import type { Colaborador } from '@/types/database'
+import type { Colaborador, Funcao } from '@/types/database'
 import * as XLSX from 'xlsx'
+import { Plus } from 'lucide-react'
 
-/** Funções disponíveis para colaboradores (produtividade). Usuário do app e usuário recebimento da planilha não têm vínculo com colaboradores. */
-const FUNCOES_COLABORADOR = ['Conferente', 'Empilhador', 'Aux. Exp/Receb', 'Aux. de Estoque'] as const
 
 interface ColaboradorExtendido extends Colaborador {
   filiais?: { nome: string }
@@ -44,7 +43,7 @@ export default function CadastrosPage() {
   const [matricula, setMatricula] = useState('')
   const [nome, setNome] = useState('')
   const [filialSelecionada, setFilialSelecionada] = useState('')
-  const [funcao, setFuncao] = useState<string>(FUNCOES_COLABORADOR[0])
+  const [funcao, setFuncao] = useState<string>('')
 
   // Filiais CRUD
   const [filiaisLista, setFiliaisLista] = useState<FilialRow[]>([])
@@ -63,7 +62,14 @@ export default function CadastrosPage() {
   const [colaboradorParaDeletar, setColaboradorParaDeletar] = useState<string | null>(null)
   const [confirmDeleteFilialOpen, setConfirmDeleteFilialOpen] = useState(false)
   const [filialParaDeletar, setFilialParaDeletar] = useState<string | null>(null)
+
+  // Funções CRUD
+  const [funcoes, setFuncoes] = useState<Funcao[]>([])
   const [dialogFuncoesAberto, setDialogFuncoesAberto] = useState(false)
+  const [funcaoInput, setFuncaoInput] = useState('')
+  const [funcaoEditando, setFuncaoEditando] = useState<Funcao | null>(null)
+  const [confirmDeleteFuncaoOpen, setConfirmDeleteFuncaoOpen] = useState(false)
+  const [funcaoParaDeletar, setFuncaoParaDeletar] = useState<string | null>(null)
 
   const inputFileRef = useRef<HTMLInputElement>(null)
 
@@ -72,8 +78,22 @@ export default function CadastrosPage() {
   useEffect(() => {
     carregarDados()
     carregarFiliais()
+    carregarFuncoes()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const carregarFuncoes = async () => {
+    const { data } = await supabase
+      .from('funcoes')
+      .select('*')
+      .order('nome')
+    if (data) {
+      setFuncoes(data)
+      if (data.length > 0 && !funcao) {
+        setFuncao(data[0].nome)
+      }
+    }
+  }
 
   const carregarDados = async () => {
     setLoading(true)
@@ -182,7 +202,7 @@ export default function CadastrosPage() {
           erros++
           continue
         }
-        const funcao = String(row['Função'] ?? row['funcao'] ?? FUNCOES_COLABORADOR[0]).trim()
+        const funcao = String(row['Função'] ?? row['funcao'] ?? (funcoes.length > 0 ? funcoes[0].nome : '')).trim()
         const { error } = await supabase.from('colaboradores').upsert(
           { matricula, nome, id_filial: idFilial, funcao, ativo: true },
           { onConflict: 'matricula' }
@@ -212,11 +232,7 @@ export default function CadastrosPage() {
     setMatricula(colaborador.matricula)
     setNome(colaborador.nome)
     setFilialSelecionada(colaborador.id_filial ?? '')
-    setFuncao(
-      colaborador.funcao && (FUNCOES_COLABORADOR as readonly string[]).includes(colaborador.funcao)
-        ? colaborador.funcao
-        : FUNCOES_COLABORADOR[0]
-    )
+    setFuncao(colaborador.funcao ?? (funcoes.length > 0 ? funcoes[0].nome : ''))
     setDialogAberto(true)
   }
 
@@ -224,7 +240,7 @@ export default function CadastrosPage() {
     setMatricula('')
     setNome('')
     setFilialSelecionada('')
-    setFuncao(FUNCOES_COLABORADOR[0])
+    setFuncao(funcoes.length > 0 ? funcoes[0].nome : '')
   }
 
   const salvar = async () => {
@@ -339,6 +355,52 @@ export default function CadastrosPage() {
       alert('Erro ao excluir filial. Pode haver colaboradores vinculados.')
     } finally {
       setFilialParaDeletar(null)
+    }
+  }
+
+  const salvarFuncao = async () => {
+    if (!funcaoInput.trim()) return
+    try {
+      if (funcaoEditando) {
+        const { error } = await supabase
+          .from('funcoes')
+          .update({ nome: funcaoInput.trim(), updated_at: new Date().toISOString() })
+          .eq('id', funcaoEditando.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('funcoes')
+          .insert({ nome: funcaoInput.trim() })
+        if (error) throw error
+      }
+      setFuncaoInput('')
+      setFuncaoEditando(null)
+      carregarFuncoes()
+    } catch (error) {
+      console.error('Erro ao salvar função:', error)
+      alert('Erro ao salvar função. Verifique se o nome já existe.')
+    }
+  }
+
+  const abrirEdicaoFuncao = (f: Funcao) => {
+    setFuncaoEditando(f)
+    setFuncaoInput(f.nome)
+  }
+
+  const executarDeleteFuncao = async () => {
+    if (!funcaoParaDeletar) return
+    try {
+      const { error } = await supabase
+        .from('funcoes')
+        .delete()
+        .eq('id', funcaoParaDeletar)
+      if (error) throw error
+      carregarFuncoes()
+    } catch (error) {
+      console.error('Erro ao excluir função:', error)
+      alert('Erro ao excluir função. Pode haver colaboradores vinculados.')
+    } finally {
+      setFuncaoParaDeletar(null)
     }
   }
 
@@ -501,18 +563,20 @@ export default function CadastrosPage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Função *</Label>
                     <Select value={funcao} onValueChange={setFuncao}>
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {FUNCOES_COLABORADOR.map((f) => (
-                          <SelectItem key={f} value={f}>{f}</SelectItem>
+                        {funcoes.map((f) => (
+                          <SelectItem key={f.id} value={f.nome}>{f.nome}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
+                  <p className="text-xs text-muted-foreground mt-4 italic">
+                    <strong>Importante:</strong> O nome do colaborador deve coincidir com o &quot;Usuário Recebto&quot; da planilha para o vínculo dos dados de produtividade.
+                  </p>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setDialogAberto(false)}>
@@ -628,18 +692,60 @@ export default function CadastrosPage() {
           <DialogHeader>
             <DialogTitle>Cadastro de Funções</DialogTitle>
             <DialogDescription>
-              Funções disponíveis para atribuir aos colaboradores. A produtividade é medida com base nos colaboradores cadastrados na tabela de colaboradores.
+              Gerencie as funções disponíveis para os colaboradores.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              {FUNCOES_COLABORADOR.map((f) => (
-                <li key={f}>{f}</li>
-              ))}
-            </ul>
-            <p className="text-sm text-muted-foreground border-t pt-4">
-              <strong>Importante:</strong> O usuário de recebimento (planilha) e o usuário do aplicativo (login) não têm associação com os colaboradores. O aplicativo mede a produtividade dos colaboradores cadastrados aqui; o nome do colaborador deve coincidir com o &quot;Usuário Recebto&quot; da planilha para o vínculo dos dados.
-            </p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Nova função..."
+                value={funcaoInput}
+                onChange={(e) => setFuncaoInput(e.target.value)}
+              />
+              <Button size="sm" onClick={salvarFuncao}>
+                {funcaoEditando ? 'Salvar' : <Plus className="w-4 h-4" />}
+              </Button>
+              {funcaoEditando && (
+                <Button size="sm" variant="ghost" onClick={() => { setFuncaoEditando(null); setFuncaoInput('') }}>
+                  Cancelar
+                </Button>
+              )}
+            </div>
+            <div className="border rounded-md max-h-60 overflow-y-auto">
+              <Table>
+                <TableBody>
+                  {funcoes.length === 0 ? (
+                    <TableRow>
+                      <TableCell className="text-center text-muted-foreground py-4">Nenhuma função cadastrada</TableCell>
+                    </TableRow>
+                  ) : (
+                    funcoes.map((f) => (
+                      <TableRow key={f.id}>
+                        <TableCell className="font-medium">{f.nome}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button size="sm" variant="ghost" onClick={() => abrirEdicaoFuncao(f)}>
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-600 hover:text-red-700"
+                              onClick={() => {
+                                setFuncaoParaDeletar(f.id)
+                                setConfirmDeleteFuncaoOpen(true)
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
           <DialogFooter>
             <Button onClick={() => setDialogFuncoesAberto(false)}>Fechar</Button>
@@ -692,6 +798,15 @@ export default function CadastrosPage() {
         confirmLabel="Excluir"
         cancelLabel="Cancelar"
       />
-    </div>
+      <ConfirmDialog
+        open={confirmDeleteFuncaoOpen}
+        onOpenChange={(open) => { setConfirmDeleteFuncaoOpen(open); if (!open) setFuncaoParaDeletar(null) }}
+        title="Excluir Função?"
+        message="Esta ação não pode ser desfeita. Certifique-se de que não haja colaboradores usando esta função."
+        onConfirm={executarDeleteFuncao}
+        confirmLabel="Excluir"
+        cancelLabel="Cancelar"
+      />
+    </div >
   )
 }

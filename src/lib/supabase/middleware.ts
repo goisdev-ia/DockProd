@@ -93,8 +93,8 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Gestor pode acessar Dashboard, Descontos, Resultado, Relatórios e Perfil
-    const gestorAllowedRoutes = ['/dashboard', '/descontos', '/resultado', '/relatorios', '/perfil']
+    // Gestor pode acessar Dashboard, Relatórios e Perfil
+    const gestorAllowedRoutes = ['/dashboard', '/relatorios', '/perfil']
     const isGestorAllowedRoute = gestorAllowedRoutes.some(route => request.nextUrl.pathname === route || request.nextUrl.pathname.startsWith(route + '/'))
     if (usuario?.tipo === 'gestor' && !isGestorAllowedRoute) {
       const url = request.nextUrl.clone()

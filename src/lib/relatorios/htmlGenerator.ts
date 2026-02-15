@@ -78,20 +78,60 @@ export function gerarRelatorioHTML(
   const { mesNome, ano, filial, usuario, baseUrl } = options
   const logoUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}/logodockprod.png` : '/logodockprod.png'
 
-  // Formatar evolução temporal para o gráfico (data_carga -> dd/MM)
-  const evolucaoFormatada = evolucaoTemporal.map((r) => ({
-    ...r,
-    data_carga: (() => {
+  // Formatar evolução temporal para o gráfico (exibir o mês inteiro se filtrado)
+  const mesesNum: Record<string, number> = {
+    'janeiro': 0, 'fevereiro': 1, 'março': 2, 'abril': 3, 'maio': 4, 'junho': 5,
+    'julho': 6, 'agosto': 7, 'setembro': 8, 'outubro': 9, 'novembro': 10, 'dezembro': 11
+  }
+
+  let evolucaoFormatada = []
+  if (mesNome !== 'todos' && mesesNum[mesNome.toLowerCase()] !== undefined) {
+    const monthIdx = mesesNum[mesNome.toLowerCase()]
+    const startDate = new Date(ano, monthIdx, 1)
+    const endDate = new Date(ano, monthIdx + 1, 0)
+    const daysInMonth = endDate.getDate()
+
+    const dataMap = new Map<string, EvolucaoTemporalRow>()
+    evolucaoTemporal.forEach(r => {
+      // Normalizar data_carga para evitar desvios de timezone
       const d = new Date(r.data_carga + 'T12:00:00')
-      const day = String(d.getDate()).padStart(2, '0')
-      const month = String(d.getMonth() + 1).padStart(2, '0')
-      return `${day}/${month}`
-    })(),
-  }))
+      const iso = d.toISOString().split('T')[0]
+      dataMap.set(iso, r)
+    })
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const d = new Date(ano, monthIdx, day)
+      const iso = `${ano}-${String(monthIdx + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      const label = `${String(day).padStart(2, '0')}/${String(monthIdx + 1).padStart(2, '0')}`
+      const row = dataMap.get(iso)
+
+      evolucaoFormatada.push({
+        data_carga: label,
+        total_kg: row ? Number(row.total_kg.toFixed(0)) : 0,
+        total_volume: row ? Number(row.total_volume.toFixed(0)) : 0,
+        total_paletes: row ? Number(row.total_paletes.toFixed(1)) : 0
+      })
+    }
+  } else {
+    // Caso 'todos' ou indefinido, mantém comportamento original simplificado
+    evolucaoFormatada = evolucaoTemporal.map((r) => ({
+      ...r,
+      data_carga: (() => {
+        const d = new Date(r.data_carga + 'T12:00:00')
+        const day = String(d.getDate()).padStart(2, '0')
+        const month = String(d.getMonth() + 1).padStart(2, '0')
+        return `${day}/${month}`
+      })(),
+      total_kg: Number(r.total_kg.toFixed(0)),
+      total_volume: Number(r.total_volume.toFixed(0)),
+      total_paletes: Number(r.total_paletes.toFixed(1))
+    }))
+  }
+
   const evolucaoLabels = JSON.stringify(evolucaoFormatada.map((r) => r.data_carga))
-  const evolucaoKg = JSON.stringify(evolucaoFormatada.map((r) => Number(r.total_kg.toFixed(0))))
-  const evolucaoVolume = JSON.stringify(evolucaoFormatada.map((r) => Number(r.total_volume.toFixed(0))))
-  const evolucaoPaletes = JSON.stringify(evolucaoFormatada.map((r) => Number(r.total_paletes.toFixed(1))))
+  const evolucaoKg = JSON.stringify(evolucaoFormatada.map((r) => r.total_kg))
+  const evolucaoVolume = JSON.stringify(evolucaoFormatada.map((r) => r.total_volume))
+  const evolucaoPaletes = JSON.stringify(evolucaoFormatada.map((r) => r.total_paletes))
 
   // ========== KPI calculations ==========
   const totalColab = data.length
@@ -160,17 +200,17 @@ export function gerarRelatorioHTML(
   // 8. Descontos em % dos Colaboradores: descontosData como fonte principal quando disponível; senão data (percentual_erros + percentual_descontos)
   const porColabDescontosPerc = descontosData.length > 0
     ? descontosData.reduce((acc, r) => {
-        const nome = r.colaborador_nome || 'Sem nome'
-        if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
-        acc[nome].percentual += r.percentual_total ?? 0
-        return acc
-      }, {} as Record<string, { nome: string; percentual: number }>)
+      const nome = r.colaborador_nome || 'Sem nome'
+      if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
+      acc[nome].percentual += r.percentual_total ?? 0
+      return acc
+    }, {} as Record<string, { nome: string; percentual: number }>)
     : data.reduce((acc, r) => {
-        const nome = r.colaborador_nome || 'Sem nome'
-        if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
-        acc[nome].percentual += (r.percentual_erros ?? 0) + (r.percentual_descontos ?? 0)
-        return acc
-      }, {} as Record<string, { nome: string; percentual: number }>)
+      const nome = r.colaborador_nome || 'Sem nome'
+      if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
+      acc[nome].percentual += (r.percentual_erros ?? 0) + (r.percentual_descontos ?? 0)
+      return acc
+    }, {} as Record<string, { nome: string; percentual: number }>)
   const descontosPercTop = Object.values(porColabDescontosPerc)
     .filter(d => d.percentual > 0)
     .sort((a, b) => b.percentual - a.percentual)
@@ -601,22 +641,22 @@ ${prodTablesHtml}
 <!-- Tabela de Indicadores (resultados brutos: Plt/Hs, Acuracidade, Checklist, Perda) -->
 <div class="section-title">Indicadores por Colaborador (${fechSource.length} registros)</div>
 ${(function buildIndicadoresTable() {
-  const indChunks = chunkArray(fechSource, ROWS_PER_PAGE)
-  return indChunks
-    .map((chunk) => {
-      const tbody = chunk
-        .map((r) => {
-          const pltHsStr = r.plt_hs != null ? fmt(r.plt_hs, 2) : '—'
-          const acuStr = r.acuracidade != null ? fmt(r.acuracidade, 2) + ' %' : '—'
-          const chkStr = r.checklist != null ? fmt(r.checklist, 2) + ' %' : '—'
-          const perdaStr = r.perda != null ? fmt(r.perda, 2) + ' %' : '—'
-          return '<tr><td>' + r.mes_ano_formatado + '</td><td>' + r.filial_nome + '</td><td>' + r.colaborador_nome + '</td><td class="text-right">' + pltHsStr + '</td><td class="text-right">' + acuStr + '</td><td class="text-right">' + chkStr + '</td><td class="text-right">' + perdaStr + '</td></tr>'
+      const indChunks = chunkArray(fechSource, ROWS_PER_PAGE)
+      return indChunks
+        .map((chunk) => {
+          const tbody = chunk
+            .map((r) => {
+              const pltHsStr = r.plt_hs != null ? fmt(r.plt_hs, 2) : '—'
+              const acuStr = r.acuracidade != null ? fmt(r.acuracidade, 2) + ' %' : '—'
+              const chkStr = r.checklist != null ? fmt(r.checklist, 2) + ' %' : '—'
+              const perdaStr = r.perda != null ? fmt(r.perda, 2) + ' %' : '—'
+              return '<tr><td>' + r.mes_ano_formatado + '</td><td>' + r.filial_nome + '</td><td>' + r.colaborador_nome + '</td><td class="text-right">' + pltHsStr + '</td><td class="text-right">' + acuStr + '</td><td class="text-right">' + chkStr + '</td><td class="text-right">' + perdaStr + '</td></tr>'
+            })
+            .join('')
+          return '<div class="table-page"><table><thead><tr><th>Mes/Ano</th><th>Filial</th><th>Colaborador</th><th class="text-right">Plt/Hs</th><th class="text-right">Acuracidade</th><th class="text-right">Checklist</th><th class="text-right">Perda</th></tr></thead><tbody>' + tbody + '</tbody></table></div>'
         })
         .join('')
-      return '<div class="table-page"><table><thead><tr><th>Mes/Ano</th><th>Filial</th><th>Colaborador</th><th class="text-right">Plt/Hs</th><th class="text-right">Acuracidade</th><th class="text-right">Checklist</th><th class="text-right">Perda</th></tr></thead><tbody>' + tbody + '</tbody></table></div>'
-    })
-    .join('')
-})()}
+    })()}
 
 <div class="section-title">Tabela de Descontos (${descSource.length} registros)</div>
 ${descTablesHtml}
@@ -626,22 +666,31 @@ ${fechTablesHtml}
 
 <div class="section-title">Dados por Coleta (${coletaSource.length} registros)</div>
 ${(function buildDadosPorColetaTable() {
-  const coletaChunks = chunkArray(coletaSource, ROWS_PER_PAGE)
-  return coletaChunks
-    .map((chunk) => {
-      const tbody = chunk
-        .map((r) => {
-          const pltHsStr = r.plt_hs != null ? fmt(r.plt_hs, 2) : '—'
-          const volHsStr = r.vol_hs != null ? fmt(r.vol_hs, 2) : '—'
-          const kgHsStr = r.kg_hs != null ? fmt(r.kg_hs, 2) : '—'
-          const tempoStr = r.tempo_horas != null ? fmt(r.tempo_horas, 2) : '—'
-          return '<tr><td>' + r.mes_ano + '</td><td>' + r.filial + '</td><td>' + r.coleta + '</td><td>' + (r.fornec || '—') + '</td><td>' + r.dta_receb + '</td><td class="text-right">' + fmt(r.qtd_caixas, 0) + '</td><td class="text-right">' + fmt(r.peso_liquido, 2) + '</td><td class="text-right">' + fmt(r.qtd_paletes, 2) + '</td><td class="text-right">' + (r.hora_inicial || '—') + '</td><td class="text-right">' + (r.hora_final || '—') + '</td><td class="text-right">' + tempoStr + '</td><td class="text-right">' + kgHsStr + '</td><td class="text-right">' + volHsStr + '</td><td class="text-right">' + pltHsStr + '</td></tr>'
+      const coletaChunks = chunkArray(coletaSource, ROWS_PER_PAGE)
+      return coletaChunks
+        .map((chunk) => {
+          const tbody = chunk
+            .map((r) => {
+              const pltHsStr = r.plt_hs != null ? fmt(r.plt_hs, 2) : '—'
+              const volHsStr = r.vol_hs != null ? fmt(r.vol_hs, 2) : '—'
+              const kgHsStr = r.kg_hs != null ? fmt(r.kg_hs, 2) : '—'
+              const tempoStr = r.tempo_horas != null ? fmt(r.tempo_horas, 2) : '—'
+
+              const emptyStyle = 'background-color:#90f4fa'
+              const hIniStyle = !r.hora_inicial ? emptyStyle : ''
+              const hFinStyle = !r.hora_final ? emptyStyle : ''
+              const tempoStyle = !r.tempo_horas ? emptyStyle : (r.tempo_horas > 1.5 ? 'background-color:#dc2626;color:#fff;font-weight:bold' : '')
+              const kgHsStyle = !r.kg_hs ? emptyStyle : ''
+              const volHsStyle = !r.vol_hs ? emptyStyle : ''
+              const pltHsStyle = !r.plt_hs ? emptyStyle : ''
+
+              return '<tr><td>' + r.mes_ano + '</td><td>' + r.filial + '</td><td>' + r.coleta + '</td><td>' + (r.fornec || '—') + '</td><td>' + r.dta_receb + '</td><td class="text-right">' + fmt(r.qtd_caixas, 0) + '</td><td class="text-right">' + fmt(r.peso_liquido, 2) + '</td><td class="text-right">' + fmt(r.qtd_paletes, 2) + '</td><td class="text-right" style="' + hIniStyle + '">' + (r.hora_inicial || '—') + '</td><td class="text-right" style="' + hFinStyle + '">' + (r.hora_final || '—') + '</td><td class="text-right" style="' + tempoStyle + '">' + tempoStr + '</td><td class="text-right" style="' + kgHsStyle + '">' + kgHsStr + '</td><td class="text-right" style="' + volHsStyle + '">' + volHsStr + '</td><td class="text-right" style="' + pltHsStyle + '">' + pltHsStr + '</td></tr>'
+            })
+            .join('')
+          return '<div class="table-page"><table><thead><tr><th>Mes/Ano</th><th>Filial</th><th>Coleta</th><th>Fornec</th><th>Dta Receb</th><th class="text-right">Qtd Caixas</th><th class="text-right">Peso Líq.</th><th class="text-right">Qtd Paletes</th><th class="text-right">Hora Inicial</th><th class="text-right">Hora Final</th><th class="text-right">Tempo (h)</th><th class="text-right">Kg/Hs</th><th class="text-right">Vol/Hs</th><th class="text-right">Plt/Hs</th></tr></thead><tbody>' + tbody + '</tbody></table></div>'
         })
         .join('')
-      return '<div class="table-page"><table><thead><tr><th>Mes/Ano</th><th>Filial</th><th>Coleta</th><th>Fornec</th><th>Dta Receb</th><th class="text-right">Qtd Caixas</th><th class="text-right">Peso Líq.</th><th class="text-right">Qtd Paletes</th><th class="text-right">Hora Inicial</th><th class="text-right">Hora Final</th><th class="text-right">Tempo (h)</th><th class="text-right">Kg/Hs</th><th class="text-right">Vol/Hs</th><th class="text-right">Plt/Hs</th></tr></thead><tbody>' + tbody + '</tbody></table></div>'
-    })
-    .join('')
-})()}
+    })()}
 
 <div class="footer">
   <p>Relatório gerado automaticamente pelo Sistema DockProd &copy; ${new Date().getFullYear()}</p>

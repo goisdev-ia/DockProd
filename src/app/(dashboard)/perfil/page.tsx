@@ -39,10 +39,12 @@ export default function PerfilPage() {
             }
 
             const { data: stats } = await supabase.rpc('get_usuario_login_stats', { p_user_id: user.id })
-            if (stats && typeof stats === 'object' && 'total_logins' in stats) {
-                const total = Number((stats as { total_logins?: number }).total_logins ?? 0)
-                const ultimo = (stats as { ultimo_login?: string }).ultimo_login ?? null
-                setLoginStats({ total_logins: total, ultimo_login: ultimo })
+            if (stats && Array.isArray(stats) && stats.length > 0) {
+                const s = stats[0]
+                setLoginStats({
+                    total_logins: Number(s.total_logins ?? 0),
+                    ultimo_login: s.ultimo_login ?? null
+                })
             }
         } catch (error) {
             console.error('Erro ao carregar perfil:', error)

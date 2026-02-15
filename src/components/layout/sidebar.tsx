@@ -54,8 +54,8 @@ const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/upload', label: 'Upload', icon: Upload, permitido: ['colaborador', 'admin'] },
   { href: '/produtividade', label: 'Produtividade', icon: BarChart3, permitido: ['colaborador', 'admin'] },
-  { href: '/descontos', label: 'Descontos', icon: Percent, permitido: ['colaborador', 'admin', 'gestor'] },
-  { href: '/resultado', label: 'Resultado', icon: Trophy, permitido: ['colaborador', 'admin', 'gestor'] },
+  { href: '/descontos', label: 'Descontos', icon: Percent, permitido: ['colaborador', 'admin'] },
+  { href: '/resultado', label: 'Resultado', icon: Trophy, permitido: ['colaborador', 'admin'] },
   { href: '/relatorios', label: 'Relatórios', icon: FileText, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/metas-e-regras', label: 'Metas e Regras', icon: Target, permitido: ['colaborador', 'admin'] },
   { href: '/cadastros', label: 'Cadastros', icon: Users, permitido: ['colaborador', 'admin'] },
@@ -305,6 +305,13 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
             ? `${palavras[0][0]}${palavras[palavras.length - 1][0]}`
             : usuario.nome.substring(0, 2)
           setIniciaisUsuario(iniciais.toUpperCase())
+
+          // Registrar login uma vez por sessão
+          const loginRegistrado = sessionStorage.getItem(`login_registrado_${user.id}`)
+          if (!loginRegistrado) {
+            await supabase.rpc('registrar_login', { p_user_id: user.id })
+            sessionStorage.setItem(`login_registrado_${user.id}`, 'true')
+          }
         }
       }
     }

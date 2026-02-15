@@ -214,7 +214,7 @@ export default function LogsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>ID Carga Cliente</Label>
+                <Label>Coleta</Label>
                 <Input
                   placeholder="Ex: 12345"
                   value={filtroIdCargaCliente}
@@ -254,7 +254,7 @@ export default function LogsPage() {
                   <TableHead>Data e hora</TableHead>
                   <TableHead>Usuário</TableHead>
                   <TableHead>Filial</TableHead>
-                  <TableHead>ID Carga Cliente</TableHead>
+                  <TableHead>Coleta</TableHead>
                   <TableHead>Ação</TableHead>
                 </TableRow>
               </TableHeader>

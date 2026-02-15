@@ -150,13 +150,17 @@ async function fetchEvolucaoTemporalFromRecebimentos(
   dataFim: Date,
   idFilial: string | null
 ): Promise<EvolucaoTemporalRow[]> {
-  let qRec = supabase
-    .from('recebimentos')
-    .select('id, id_filial, dta_receb, id_coleta_recebimento, peso_liquido_recebido, qtd_caixas_recebidas')
-    .gte('dta_receb', toISODateLocal(dataInicio))
-    .lte('dta_receb', toISODateLocal(dataFim))
-  if (idFilial) qRec = qRec.eq('id_filial', idFilial)
-  const { data: recList } = await qRec
+  const queryFn = () => {
+    let qRec = supabase
+      .from('recebimentos')
+      .select('id, id_filial, dta_receb, id_coleta_recebimento, peso_liquido_recebido, qtd_caixas_recebidas')
+      .gte('dta_receb', toISODateLocal(dataInicio))
+      .lte('dta_receb', toISODateLocal(dataFim))
+    if (idFilial) qRec = qRec.eq('id_filial', idFilial)
+    return qRec
+  }
+
+  const recList = await fetchAllRows<any>(queryFn)
   const recs = (recList ?? []) as Array<{
     id: string
     id_filial: string | null
@@ -494,18 +498,21 @@ export async function fetchReportDescontos(
   const monthIdx = numStr ? parseInt(numStr, 10) - 1 : 0
   const dataInicio = new Date(ano, monthIdx, 1)
   const dataFim = new Date(ano, monthIdx + 1, 0)
-  let query = supabase
-    .from('descontos')
-    .select(`
-      *,
-      colaboradores (nome),
-      filiais (nome)
-    `)
-    .gte('mes_desconto', toISODateLocal(dataInicio))
-    .lte('mes_desconto', toISODateLocal(dataFim))
-  if (idFilial) query = query.eq('id_filial', idFilial)
-  const { data, error } = await query.order('mes_desconto', { ascending: false })
-  if (error) return []
+  const queryFn = () => {
+    let query = supabase
+      .from('descontos')
+      .select(`
+        *,
+        colaboradores (nome),
+        filiais (nome)
+      `)
+      .gte('mes_desconto', toISODateLocal(dataInicio))
+      .lte('mes_desconto', toISODateLocal(dataFim))
+    if (idFilial) query = query.eq('id_filial', idFilial)
+    return query
+  }
+
+  const data = await fetchAllRows<any>(queryFn)
   return (data ?? []).map((d: Record<string, unknown>) => {
     const mesDesconto = d.mes_desconto ? String(d.mes_desconto).slice(0, 10) : ''
     let mesAnoFormatado = ''
@@ -582,16 +589,19 @@ export async function fetchReportResultados(
   if (!mesNome || mesNome === 'todos') {
     return []
   }
-  let query = supabase
-    .from('resultados')
-    .select(`
-      *,
-      colaboradores (nome, matricula, funcao, filiais (codigo, nome))
-    `)
-    .eq('mes', mesNome)
-  if (idFilial) query = query.eq('id_filial', idFilial)
-  const { data, error } = await query.order('bonus_final', { ascending: false })
-  if (error) return []
+  const queryFn = () => {
+    let query = supabase
+      .from('resultados')
+      .select(`
+        *,
+        colaboradores (nome, matricula, funcao, filiais (codigo, nome))
+      `)
+      .eq('mes', mesNome)
+    if (idFilial) query = query.eq('id_filial', idFilial)
+    return query
+  }
+
+  const data = await fetchAllRows<any>(queryFn)
   const mesesLongos: Record<string, string> = {
     janeiro: 'Janeiro', fevereiro: 'Fevereiro', março: 'Março', abril: 'Abril',
     maio: 'Maio', junho: 'Junho', julho: 'Julho', agosto: 'Agosto',

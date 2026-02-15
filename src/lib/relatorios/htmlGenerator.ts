@@ -1,4 +1,4 @@
-import type { FechamentoLinha, EvolucaoTemporalRow } from '../relatorios'
+import type { FechamentoLinha, EvolucaoTemporalRow, DescontoReportRow, ResultadoReportRow, DadoColetaReportRow } from '../relatorios'
 import { filterOutNaoInformado } from '../nao-informado'
 
 interface HtmlOptions {
@@ -48,6 +48,18 @@ function getMesFormatado(mesNome: string, ano: number): string {
   return `${mesAbrev}/${ano}`
 }
 
+/** Mês/ano formatado para tabelas (ex.: Janeiro/2026). */
+function getMesFormatadoLongo(mesNome: string, ano: number): string {
+  const mesesLongos: Record<string, string> = {
+    'janeiro': 'Janeiro', 'fevereiro': 'Fevereiro', 'março': 'Março', 'abril': 'Abril',
+    'maio': 'Maio', 'junho': 'Junho', 'julho': 'Julho', 'agosto': 'Agosto',
+    'setembro': 'Setembro', 'outubro': 'Outubro', 'novembro': 'Novembro', 'dezembro': 'Dezembro',
+    'todos': 'Todos'
+  }
+  const nome = mesesLongos[mesNome.toLowerCase()] || mesNome
+  return `${nome}/${ano}`
+}
+
 /** Primeiros 2 nomes do colaborador (igual ao Dashboard). */
 function formatarNomeColab(nome: string): string {
   const partes = nome.trim().split(' ')
@@ -68,11 +80,14 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 export function gerarRelatorioHTML(
   data: FechamentoLinha[],
   options: HtmlOptions,
-  evolucaoTemporal: EvolucaoTemporalRow[] = []
+  evolucaoTemporal: EvolucaoTemporalRow[] = [],
+  descontosData: DescontoReportRow[] = [],
+  resultadosData: ResultadoReportRow[] = [],
+  dadosPorColetaData: DadoColetaReportRow[] = []
 ): string {
   data = filterOutNaoInformado(data, (r) => r.colaborador_nome)
   const { mesNome, ano, filial, usuario, baseUrl } = options
-  const logoUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}/pickprodlogo.png` : '/pickprodlogo.png'
+  const logoUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}/logodockprod.png` : '/logodockprod.png'
 
   // Formatar evolução temporal para o gráfico (data_carga -> dd/MM)
   const evolucaoFormatada = evolucaoTemporal.map((r) => ({
@@ -91,10 +106,18 @@ export function gerarRelatorioHTML(
 
   // ========== KPI calculations ==========
   const totalColab = data.length
-  const totalPeso = data.reduce((s, r) => s + r.peso_liquido_total, 0)
-  const totalVolume = data.reduce((s, r) => s + r.volume_total, 0)
-  const totalPaletes = data.reduce((s, r) => s + r.paletes_total, 0)
-  const totalTempo = data.reduce((s, r) => s + r.tempo_total, 0)
+  // Aggregate unique filial totals to avoid doubling (each collaborator has filial totals, so we deduplicate)
+  const filialTotaisMap = new Map<string, { peso: number; volume: number; paletes: number; tempo: number }>()
+  data.forEach(r => {
+    const key = `${r.id_filial}|${r.mes}|${r.ano}`
+    if (!filialTotaisMap.has(key)) {
+      filialTotaisMap.set(key, { peso: r.peso_liquido_total, volume: r.volume_total, paletes: r.paletes_total, tempo: r.tempo_total })
+    }
+  })
+  const totalPeso = Array.from(filialTotaisMap.values()).reduce((s, v) => s + v.peso, 0)
+  const totalVolume = Array.from(filialTotaisMap.values()).reduce((s, v) => s + v.volume, 0)
+  const totalPaletes = Array.from(filialTotaisMap.values()).reduce((s, v) => s + v.paletes, 0)
+  const totalTempo = Array.from(filialTotaisMap.values()).reduce((s, v) => s + v.tempo, 0)
   const totalProdFinal = data.reduce((s, r) => s + r.produtividade_final, 0)
   const totalMeta = data.reduce((s, r) => s + r.meta, 0)
   const mediaAtingimento = totalColab > 0 ? data.reduce((s, r) => s + r.percentual_atingimento, 0) / totalColab : 0
@@ -130,10 +153,20 @@ export function gerarRelatorioHTML(
   const filialLabels = JSON.stringify(filialEntries.map(e => e[0]))
   const filialProd = JSON.stringify(filialEntries.map(e => Number(e[1].prod.toFixed(2))))
 
-  // 5. Totais por Filial
-  const filialPeso = JSON.stringify(filialEntries.map(e => Number(e[1].peso.toFixed(0))))
-  const filialVolume = JSON.stringify(filialEntries.map(e => Number(e[1].volume.toFixed(0))))
-  const filialPaletes = JSON.stringify(filialEntries.map(e => Number(e[1].paletes.toFixed(1))))
+  // 5. Totais por Filial (valores únicos por filial - deduplicar pois cada colaborador repete os totais da filial)
+  const filialUnicaPorNome = new Map<string, { peso: number; volume: number; paletes: number }>()
+  data.forEach(r => {
+    if (!filialUnicaPorNome.has(r.filial_nome)) {
+      filialUnicaPorNome.set(r.filial_nome, {
+        peso: r.peso_liquido_total,
+        volume: r.volume_total,
+        paletes: r.paletes_total,
+      })
+    }
+  })
+  const filialPeso = JSON.stringify(filialEntries.map(e => Number((filialUnicaPorNome.get(e[0])?.peso ?? 0).toFixed(0))))
+  const filialVolume = JSON.stringify(filialEntries.map(e => Number((filialUnicaPorNome.get(e[0])?.volume ?? 0).toFixed(0))))
+  const filialPaletes = JSON.stringify(filialEntries.map(e => Number((filialUnicaPorNome.get(e[0])?.paletes ?? 0).toFixed(1))))
 
   // 8. Descontos em % dos Colaboradores (mesma lógica do Dashboard: percentual_erros + percentual_descontos, top 12)
   const porColabDescontosPerc = data.reduce((acc, r) => {
@@ -162,12 +195,17 @@ export function gerarRelatorioHTML(
 
   // ========== Totalizadores para as Tabelas ==========
   const mesFormatado = getMesFormatado(mesNome, ano)
-  
-  // Totais Produtividade
+  const mesFormatadoLongo = getMesFormatadoLongo(mesNome, ano)
+
+  // Totais Produtividade (usar deduplicação por filial - mesmo valor nos cards)
+  const totaisProdPesoVolumePaletes = Array.from(filialTotaisMap.values()).reduce(
+    (acc, v) => ({ peso: acc.peso + v.peso, volume: acc.volume + v.volume, paletes: acc.paletes + v.paletes }),
+    { peso: 0, volume: 0, paletes: 0 }
+  )
   const totaisProd = {
-    peso: data.reduce((s, r) => s + r.peso_liquido_total, 0),
-    volume: data.reduce((s, r) => s + r.volume_total, 0),
-    paletes: data.reduce((s, r) => s + r.paletes_total, 0),
+    peso: totaisProdPesoVolumePaletes.peso,
+    volume: totaisProdPesoVolumePaletes.volume,
+    paletes: totaisProdPesoVolumePaletes.paletes,
     tempo: data.reduce((s, r) => s + r.tempo_total, 0),
     kgHs: totalColab > 0 ? data.reduce((s, r) => s + r.kg_hs, 0) / totalColab : 0,
     volHs: totalColab > 0 ? data.reduce((s, r) => s + r.vol_hs, 0) / totalColab : 0,
@@ -204,47 +242,66 @@ export function gerarRelatorioHTML(
       const tbody = chunk
         .map(
           (r) =>
-            `<tr><td>${mesFormatado}</td><td>${r.filial_nome}</td><td>${r.colaborador_nome}</td><td class="text-right">${fmt(r.peso_liquido_total, 0)}</td><td class="text-right">${fmt(r.volume_total, 0)}</td><td class="text-right">${fmt(r.paletes_total, 1)}</td><td class="text-right">${fmt(r.tempo_total, 1)}</td><td class="text-right">${fmt(r.kg_hs)}</td><td class="text-right">${fmt(r.vol_hs)}</td><td class="text-right">${fmt(r.plt_hs)}</td></tr>`
+            `<tr><td>${mesFormatadoLongo}</td><td>${r.filial_nome}</td><td>${r.colaborador_nome}</td><td class="text-right">${fmt(r.peso_liquido_total, 2)}</td><td class="text-right">${fmt(r.volume_total, 0)}</td><td class="text-right">${fmt(r.paletes_total, 1)}</td><td class="text-right">${fmt(r.tempo_total, 1)}</td><td class="text-right">${fmt(r.kg_hs)}</td><td class="text-right">${fmt(r.vol_hs)}</td><td class="text-right">${fmt(r.plt_hs)}</td></tr>`
         )
         .join('')
       const tfoot = isLast
-        ? `<tfoot><tr class="total-row"><td colspan="3"><strong>TOTAL (${data.length} colab.)</strong></td><td class="text-right"><strong>${fmt(totaisProd.peso, 0)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.volume, 0)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.paletes, 1)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.tempo, 1)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.kgHs)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.volHs)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.pltHs)}</strong></td></tr></tfoot>`
+        ? `<tfoot><tr class="total-row"><td colspan="3"><strong>TOTAL (${data.length} colab.)</strong></td><td class="text-right"><strong>${fmt(totaisProd.peso, 2)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.volume, 0)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.paletes, 1)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.tempo, 1)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.kgHs)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.volHs)}</strong></td><td class="text-right"><strong>${fmt(totaisProd.pltHs)}</strong></td></tr></tfoot>`
         : ''
       return `<div class="table-page"><table><thead><tr><th>Mês</th><th>Filial</th><th>Colaborador</th><th class="text-right">Peso Liq.</th><th class="text-right">Volume</th><th class="text-right">Paletes</th><th class="text-right">Tempo</th><th class="text-right">Kg/Hs</th><th class="text-right">Vol/Hs</th><th class="text-right">Plt/Hs</th></tr></thead><tbody>${tbody}</tbody>${tfoot}</table></div>`
     })
     .join('')
 
-  const descChunks = chunkArray(data, ROWS_PER_PAGE)
+  // Tabela de Descontos (fonte: tabela descontos) - colunas: Colaborador, Filial, Mês/Ano, Faltas, Férias, Advertências, Suspensões, Atestado (dias), % Total, Observação
+  const descSource = descontosData.length > 0 ? descontosData : []
+  const descChunks = chunkArray(descSource, ROWS_PER_PAGE)
   const descTablesHtml = descChunks
     .map((chunk, idx) => {
       const isLast = idx === descChunks.length - 1
       const tbody = chunk
         .map(
           (r) =>
-            `<tr><td>${mesFormatado}</td><td>${r.filial_nome}</td><td>${r.colaborador_nome}</td><td class="text-right">${r.erro_separacao_total}</td><td class="text-right">${r.erro_entregas_total}</td><td class="text-right">${fmt(r.percentual_erros, 1)}%</td><td class="text-right">${fmt(r.percentual_descontos, 1)}%</td><td class="text-right">${fmtMoeda(r.valor_descontos)}</td></tr>`
+            `<tr><td>${r.colaborador_nome}</td><td>${r.filial_nome}</td><td>${r.mes_ano_formatado}</td><td class="text-center">${r.falta_injustificada}</td><td class="text-center">${r.ferias}</td><td class="text-center">${r.advertencia}</td><td class="text-center">${r.suspensao}</td><td class="text-center">${r.atestado}</td><td class="text-center">${fmt(r.percentual_total, 0)}%</td><td>${r.observacao || '—'}</td></tr>`
         )
         .join('')
-      const tfoot = isLast
-        ? `<tfoot><tr class="total-row"><td colspan="3"><strong>TOTAL (${data.length} colab.)</strong></td><td class="text-right"><strong>${totaisDesc.errosSep}</strong></td><td class="text-right"><strong>${totaisDesc.errosEnt}</strong></td><td class="text-right"><strong>${fmt(totaisDesc.percErros, 1)}%</strong></td><td class="text-right"><strong>${fmt(totaisDesc.percDescontos, 1)}%</strong></td><td class="text-right"><strong>${fmtMoeda(totaisDesc.vlrDescontos)}</strong></td></tr></tfoot>`
+      const totalDesc = descSource.length
+      const tfoot = isLast && totalDesc > 0
+        ? `<tfoot><tr class="total-row"><td colspan="3"><strong>TOTAL (${totalDesc} desconto${totalDesc !== 1 ? 's' : ''})</strong></td><td colspan="7"></td></tr></tfoot>`
         : ''
-      return `<div class="table-page"><table><thead><tr><th>Mês</th><th>Filial</th><th>Colaborador</th><th class="text-right">Erros Sep.</th><th class="text-right">Erros Ent.</th><th class="text-right">% Erros</th><th class="text-right">% Desc.</th><th class="text-right">Vlr Desc.</th></tr></thead><tbody>${tbody}</tbody>${tfoot}</table></div>`
+      return `<div class="table-page"><table><thead><tr><th>Colaborador</th><th>Filial</th><th>Mês/Ano</th><th class="text-center">Faltas</th><th class="text-center">Férias</th><th class="text-center">Advertências</th><th class="text-center">Suspensões</th><th class="text-center">Atestado (dias)</th><th class="text-center">% Total</th><th>Observação</th></tr></thead><tbody>${tbody}</tbody>${tfoot}</table></div>`
     })
     .join('')
 
-  const fechChunks = chunkArray(data, ROWS_PER_PAGE)
+  // Tabela de Fechamento / Resultado (fonte: tabela resultados) - colunas: Filial, Mes/Ano, Função, Matrícula, Colaborador, Vlr Acuracidade, Vlr Checklist, Vlr Plt/Hs, Vlr Perda, Desconto, Prod. Final R$, Meta
+  const fechSource = resultadosData.length > 0 ? resultadosData : []
+  const coletaSource = dadosPorColetaData.length > 0 ? dadosPorColetaData : []
+  const totaisResultados = fechSource.length > 0 ? fechSource.reduce((acc, r) => ({
+    vlrAcu: acc.vlrAcu + r.vlr_acuracidade,
+    vlrChk: acc.vlrChk + r.vlr_checklist,
+    vlrPlt: acc.vlrPlt + r.vlr_plt_hs,
+    vlrPerda: acc.vlrPerda + r.vlr_perda,
+    desconto: acc.desconto + r.desconto,
+    prodFinal: acc.prodFinal + r.prod_final,
+    meta: acc.meta + r.meta,
+  }), { vlrAcu: 0, vlrChk: 0, vlrPlt: 0, vlrPerda: 0, desconto: 0, prodFinal: 0, meta: 0 }) : null
+  const mediaAtingResultados = totaisResultados && fechSource.length > 0 && totaisResultados.meta > 0
+    ? (totaisResultados.prodFinal / (fechSource.length * 250)) * 100
+    : 0
+  const fechChunks = chunkArray(fechSource, ROWS_PER_PAGE)
   const fechTablesHtml = fechChunks
     .map((chunk, idx) => {
       const isLast = idx === fechChunks.length - 1
       const tbody = chunk
-        .map(
-          (r) =>
-            `<tr><td>${mesFormatado}</td><td>${r.filial_nome}</td><td>${r.colaborador_nome}</td><td class="text-right">${fmtMoeda(r.valor_kg_hs)}</td><td class="text-right">${fmtMoeda(r.valor_vol_hs)}</td><td class="text-right">${fmtMoeda(r.valor_plt_hs)}</td><td class="text-right">${fmtMoeda(r.produtividade_bruta)}</td><td class="text-right">${fmt(r.percentual_erros, 1)}%</td><td class="text-right">${fmt(r.percentual_descontos, 1)}%</td><td class="text-right cell-prod-final" style="${getProdFinalCellStyle(r.produtividade_final)}">${fmtMoeda(r.produtividade_final)}</td><td class="text-right">${fmtMoeda(r.meta)}</td><td class="text-center ${r.percentual_atingimento >= 100 ? 'meta-ok' : 'meta-fail'}">${fmt(r.percentual_atingimento, 1)}%</td></tr>`
-        )
+        .map((r) => {
+          const pctMeta = r.meta > 0 ? Math.min((r.prod_final / r.meta) * 100, 100) : 0
+          return `<tr><td>${r.filial_nome}</td><td>${r.mes_ano_formatado}</td><td>${r.funcao}</td><td>${r.matricula}</td><td>${r.colaborador_nome}</td><td class="text-right">${fmtMoeda(r.vlr_acuracidade)}</td><td class="text-right">${fmtMoeda(r.vlr_checklist)}</td><td class="text-right">${fmtMoeda(r.vlr_plt_hs)}</td><td class="text-right">${fmtMoeda(r.vlr_perda)}</td><td class="text-right">${fmtMoeda(r.desconto)}</td><td class="text-right cell-prod-final" style="${getProdFinalCellStyle(r.prod_final)}">${fmtMoeda(r.prod_final)}</td><td>Meta ${fmtMoeda(r.meta)} / ${fmt(pctMeta, 0)}%</td></tr>`
+        })
         .join('')
-      const tfoot = isLast
-        ? `<tfoot><tr class="total-row"><td colspan="3"><strong>TOTAL (${data.length} colab.)</strong></td><td class="text-right"><strong>${fmtMoeda(totaisFech.vlrKgHs)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisFech.vlrVolHs)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisFech.vlrPltHs)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisFech.prodBruta)}</strong></td><td class="text-right"><strong>${fmt(totaisFech.percErros, 1)}%</strong></td><td class="text-right"><strong>${fmt(totaisFech.percDescontos, 1)}%</strong></td><td class="text-right"><strong>${fmtMoeda(totaisFech.prodFinal)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisFech.meta)}</strong></td><td class="text-center"><strong>${fmt(totaisFech.atingimento, 1)}%</strong></td></tr></tfoot>`
+      const totalFech = fechSource.length
+      const tfoot = isLast && totaisResultados
+        ? `<tfoot><tr class="total-row"><td colspan="5"><strong>TOTAL (${totalFech} colab.)</strong></td><td class="text-right"><strong>${fmtMoeda(totaisResultados.vlrAcu)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisResultados.vlrChk)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisResultados.vlrPlt)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisResultados.vlrPerda)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisResultados.desconto)}</strong></td><td class="text-right"><strong>${fmtMoeda(totaisResultados.prodFinal)}</strong></td><td class="text-center"><strong>${fmt(mediaAtingResultados, 1)}%</strong></td></tr></tfoot>`
         : ''
-      return `<div class="table-page"><table><thead><tr><th>Mês</th><th>Filial</th><th>Colaborador</th><th class="text-right">Vlr Kg/Hs</th><th class="text-right">Vlr Vol/Hs</th><th class="text-right">Vlr Plt/Hs</th><th class="text-right">Prod. Bruta</th><th class="text-right">% Erros</th><th class="text-right">% Desc.</th><th class="text-right">Prod. Final</th><th class="text-right">Meta</th><th class="text-center">% Ating.</th></tr></thead><tbody>${tbody}</tbody>${tfoot}</table></div>`
+      return `<div class="table-page"><table><thead><tr><th>Filial</th><th>Mes/Ano</th><th>Função</th><th>Matrícula</th><th>Colaborador</th><th class="text-right">Vlr Acuracidade</th><th class="text-right">Vlr Checklist</th><th class="text-right">Vlr Plt/Hs</th><th class="text-right">Vlr Perda</th><th class="text-right">Desconto</th><th class="text-right">Prod. Final R$</th><th>Meta</th></tr></thead><tbody>${tbody}</tbody>${tfoot}</table></div>`
     })
     .join('')
 
@@ -253,7 +310,7 @@ export function gerarRelatorioHTML(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Relatório PickProd - ${mesNome} ${ano}</title>
+<title>Relatório DockProd - ${mesNome} ${ano}</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"><\/script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"><\/script>
 <style>
@@ -464,10 +521,10 @@ export function gerarRelatorioHTML(
 <!-- ============ SESSÃO 1: CABEÇALHO ============ -->
 <div class="header">
   <div class="header-logo">
-    <img src="${logoUrl}" alt="PickProd" onerror="this.parentElement.innerHTML='PP'" />
+    <img src="${logoUrl}" alt="DockProd" onerror="this.parentElement.innerHTML='DP'" />
   </div>
   <div>
-    <h1>PickProd - Relatório de Produtividade</h1>
+    <h1>DockProd - Relatório de Produtividade</h1>
     <div class="header-info">
       <strong>Período:</strong> ${mesNome === 'todos' ? 'Todos os Meses' : mesNome} ${ano} &nbsp;|&nbsp;
       <strong>Filial:</strong> ${filial || 'Todas'} &nbsp;|&nbsp;
@@ -501,7 +558,7 @@ export function gerarRelatorioHTML(
   </div>
   <div class="kpi-card">
     <div class="kpi-title">Peso Liq. Total</div>
-    <div class="kpi-value">${fmt(totalPeso, 0)} kg</div>
+    <div class="kpi-value">${fmt(totalPeso, 2)} kg</div>
     <div class="kpi-desc">${fmt(totalPeso / 1000, 1)} toneladas</div>
   </div>
   <div class="kpi-card">
@@ -568,14 +625,53 @@ export function gerarRelatorioHTML(
 <div class="section-title page-break">Tabela de Produtividade (${data.length} registros)</div>
 ${prodTablesHtml}
 
-<div class="section-title">Tabela de Descontos</div>
+<!-- Tabela de Indicadores (resultados brutos: Plt/Hs, Acuracidade, Checklist, Perda) -->
+<div class="section-title">Indicadores por Colaborador (${fechSource.length} registros)</div>
+${(function buildIndicadoresTable() {
+  const indChunks = chunkArray(fechSource, ROWS_PER_PAGE)
+  return indChunks
+    .map((chunk) => {
+      const tbody = chunk
+        .map((r) => {
+          const pltHsStr = r.plt_hs != null ? fmt(r.plt_hs, 2) : '—'
+          const acuStr = r.acuracidade != null ? fmt(r.acuracidade, 2) + ' %' : '—'
+          const chkStr = r.checklist != null ? fmt(r.checklist, 2) + ' %' : '—'
+          const perdaStr = r.perda != null ? fmt(r.perda, 2) + ' %' : '—'
+          return '<tr><td>' + r.mes_ano_formatado + '</td><td>' + r.filial_nome + '</td><td>' + r.colaborador_nome + '</td><td class="text-right">' + pltHsStr + '</td><td class="text-right">' + acuStr + '</td><td class="text-right">' + chkStr + '</td><td class="text-right">' + perdaStr + '</td></tr>'
+        })
+        .join('')
+      return '<div class="table-page"><table><thead><tr><th>Mes/Ano</th><th>Filial</th><th>Colaborador</th><th class="text-right">Plt/Hs</th><th class="text-right">Acuracidade</th><th class="text-right">Checklist</th><th class="text-right">Perda</th></tr></thead><tbody>' + tbody + '</tbody></table></div>'
+    })
+    .join('')
+})()}
+
+<div class="section-title">Tabela de Descontos (${descSource.length} registros)</div>
 ${descTablesHtml}
 
-<div class="section-title">Tabela de Fechamento / Resultado</div>
+<div class="section-title">Tabela de Fechamento / Resultado (${fechSource.length} registros)</div>
 ${fechTablesHtml}
 
+<div class="section-title">Dados por Coleta (${coletaSource.length} registros)</div>
+${(function buildDadosPorColetaTable() {
+  const coletaChunks = chunkArray(coletaSource, ROWS_PER_PAGE)
+  return coletaChunks
+    .map((chunk) => {
+      const tbody = chunk
+        .map((r) => {
+          const pltHsStr = r.plt_hs != null ? fmt(r.plt_hs, 2) : '—'
+          const volHsStr = r.vol_hs != null ? fmt(r.vol_hs, 2) : '—'
+          const kgHsStr = r.kg_hs != null ? fmt(r.kg_hs, 2) : '—'
+          const tempoStr = r.tempo_horas != null ? fmt(r.tempo_horas, 2) : '—'
+          return '<tr><td>' + r.mes_ano + '</td><td>' + r.filial + '</td><td>' + r.coleta + '</td><td>' + (r.fornec || '—') + '</td><td>' + r.dta_receb + '</td><td class="text-right">' + fmt(r.qtd_caixas, 0) + '</td><td class="text-right">' + fmt(r.peso_liquido, 2) + '</td><td class="text-right">' + fmt(r.qtd_paletes, 2) + '</td><td class="text-right">' + (r.hora_inicial || '—') + '</td><td class="text-right">' + (r.hora_final || '—') + '</td><td class="text-right">' + tempoStr + '</td><td class="text-right">' + kgHsStr + '</td><td class="text-right">' + volHsStr + '</td><td class="text-right">' + pltHsStr + '</td></tr>'
+        })
+        .join('')
+      return '<div class="table-page"><table><thead><tr><th>Mes/Ano</th><th>Filial</th><th>Coleta</th><th>Fornec</th><th>Dta Receb</th><th class="text-right">Qtd Caixas</th><th class="text-right">Peso Líq.</th><th class="text-right">Qtd Paletes</th><th class="text-right">Hora Inicial</th><th class="text-right">Hora Final</th><th class="text-right">Tempo (h)</th><th class="text-right">Kg/Hs</th><th class="text-right">Vol/Hs</th><th class="text-right">Plt/Hs</th></tr></thead><tbody>' + tbody + '</tbody></table></div>'
+    })
+    .join('')
+})()}
+
 <div class="footer">
-  <p>Relatório gerado automaticamente pelo Sistema PickProd &copy; ${new Date().getFullYear()}</p>
+  <p>Relatório gerado automaticamente pelo Sistema DockProd &copy; ${new Date().getFullYear()}</p>
   <p>Data de geração: ${new Date().toLocaleString('pt-BR')}</p>
 </div>
 </div>
@@ -629,7 +725,10 @@ ${fechTablesHtml}
   }
 
   // 2. Performance Colaborador R$ (valores dentro das barras)
-  new Chart(document.getElementById('chartColabR$'), {
+  const chartColabREl = document.getElementById('chartColabR$');
+  const colabRDataLength = ${top10R$.length};
+  if (colabRDataLength > 0) {
+  new Chart(chartColabREl, {
     type: 'bar',
     data: {
       labels: ${colabR$Labels},
@@ -644,6 +743,9 @@ ${fechTablesHtml}
       }
     }
   });
+  } else {
+    chartColabREl.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;">Sem dados</div>';
+  }
 
   // 3. Totais Colaborador (empilhado - valores nas barras)
   new Chart(document.getElementById('chartColabTotais'), {
@@ -723,6 +825,11 @@ ${fechTablesHtml}
         maintainAspectRatio: false,
         plugins: {
           legend: { position: 'right', labels: { font: { size: 9 }, boxWidth: 8, padding: 4 } },
+          datalabels: {
+            color: '#fff',
+            font: { size: 9, weight: 'bold' },
+            formatter: function(v) { return v != null ? Number(v).toFixed(1) + '%' : ''; }
+          },
           tooltip: {
             ...commonOpts.plugins.tooltip,
             callbacks: { label: function(ctx) { return (ctx.label || '') + ': ' + (ctx.raw != null ? Number(ctx.raw).toFixed(1) : '') + '%'; } }
@@ -735,7 +842,10 @@ ${fechTablesHtml}
   }
 
   // 7. Descontos Colaborador (valores dentro das barras - cor clara para contraste no vermelho)
-  new Chart(document.getElementById('chartDescontos'), {
+  const chartDescontosEl = document.getElementById('chartDescontos');
+  const descontosColabLength = ${descontosColab.length};
+  if (descontosColabLength > 0) {
+  new Chart(chartDescontosEl, {
     type: 'bar',
     data: {
       labels: ${descontosLabels},
@@ -750,6 +860,9 @@ ${fechTablesHtml}
       }
     }
   });
+  } else {
+    chartDescontosEl.parentElement.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:12px;">Nenhum desconto no período</div>';
+  }
 <\/script>
 </body>
 </html>`

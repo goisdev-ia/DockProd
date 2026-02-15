@@ -14,11 +14,15 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Edit, Trash2, Plus, ChevronLeft, ChevronRight } from 'lucide-react'
 import { FilterToggle } from '@/components/FilterToggle'
+import { getMesNome } from '@/lib/dashboard-filters'
 import type { Desconto } from '@/types/database'
 
 interface DescontoExtendido extends Desconto {
   colaborador_nome?: string
   filial_nome?: string
+  /** Derivado de mes_desconto para filtro/exibição */
+  mes?: string
+  ano?: number
 }
 
 export default function DescontosPage() {
@@ -153,16 +157,28 @@ export default function DescontosPage() {
           colaboradores (nome, matricula),
           filiais (nome)
         `)
-        .order('ano', { ascending: false })
-        .order('mes', { ascending: false })
+        .order('mes_desconto', { ascending: false })
 
       if (data) {
-        const descontosFormatados = data.map(d => ({
-          ...d,
-          colaborador_nome: d.colaboradores?.nome,
-          filial_nome: d.filiais?.nome
-        }))
-        setDescontos(descontosFormatados)
+        const descontosFormatados = (data as Array<Record<string, unknown> & { mes_desconto?: string | null; colaboradores?: { nome?: string; matricula?: string } | null; filiais?: { nome?: string } | null }>).map(d => {
+          let mes: string | undefined
+          let ano: number | undefined
+          if (d.mes_desconto) {
+            const s = String(d.mes_desconto)
+            const year = parseInt(s.slice(0, 4), 10)
+            const monthNum = parseInt(s.slice(5, 7), 10) - 1
+            mes = getMesNome(monthNum)
+            ano = year
+          }
+          return {
+            ...d,
+            colaborador_nome: d.colaboradores?.nome,
+            filial_nome: d.filiais?.nome,
+            mes,
+            ano,
+          }
+        })
+        setDescontos(descontosFormatados as DescontoExtendido[])
       }
     } catch (error) {
       console.error('Erro ao carregar descontos:', error)
@@ -202,7 +218,7 @@ export default function DescontosPage() {
     }
 
     if (filtroMes && filtroMes !== 'todos') {
-      filtrados = filtrados.filter(d => d.mes === filtroMes)
+      filtrados = filtrados.filter(d => (d as DescontoExtendido).mes === filtroMes)
     }
 
     if (buscaDebounced) {
@@ -255,12 +271,12 @@ export default function DescontosPage() {
 
     if (filtroAtestadoMin !== '') {
       const min = Number(filtroAtestadoMin)
-      filtrados = filtrados.filter(d => d.atestado_dias >= min)
+      filtrados = filtrados.filter(d => (d.atestado ?? 0) >= min)
     }
 
     if (filtroAtestadoMax !== '') {
       const max = Number(filtroAtestadoMax)
-      filtrados = filtrados.filter(d => d.atestado_dias <= max)
+      filtrados = filtrados.filter(d => (d.atestado ?? 0) <= max)
     }
 
     if (matriculaDebounced) {
@@ -358,14 +374,14 @@ export default function DescontosPage() {
   const abrirEdicao = (desconto: DescontoExtendido) => {
     setModoEdicao(true)
     setDescontoEditando(desconto)
-    setColaboradorSelecionado(desconto.id_colaborador)
-    setMesSelecionado(desconto.mes)
-    setAnoSelecionado(desconto.ano)
-    setFaltaInjustificada(desconto.falta_injustificada)
-    setFerias(desconto.ferias)
-    setAdvertencia(desconto.advertencia)
-    setSuspensao(desconto.suspensao)
-    setAtestadoDias(desconto.atestado_dias)
+    setColaboradorSelecionado(desconto.id_colaborador ?? 'selecione')
+    setMesSelecionado(desconto.mes ?? 'selecione')
+    setAnoSelecionado(desconto.ano ?? new Date().getFullYear())
+    setFaltaInjustificada(desconto.falta_injustificada ?? 0)
+    setFerias(!!desconto.ferias)
+    setAdvertencia(desconto.advertencia ?? 0)
+    setSuspensao(desconto.suspensao ?? 0)
+    setAtestadoDias(desconto.atestado ?? 0)
     setObservacao(desconto.observacao || '')
     setDialogAberto(true)
   }
@@ -393,18 +409,22 @@ export default function DescontosPage() {
       if (!colaborador) return
 
       const percentualTotal = calcularPercentualTotal()
+      const mesIndex = meses.indexOf(mesSelecionado)
+      const mesDescontoDate = new Date(anoSelecionado, mesIndex >= 0 ? mesIndex : 0, 1)
+      const mesDescontoStr = mesDescontoDate.getFullYear() + '-' + String(mesDescontoDate.getMonth() + 1).padStart(2, '0') + '-' + '01'
 
       const dadosDesconto = {
         id_colaborador: colaboradorSelecionado,
         id_filial: colaborador.id_filial,
-        mes: mesSelecionado,
-        ano: anoSelecionado,
+        mes_desconto: mesDescontoStr,
+        data_desconto: mesDescontoStr,
         falta_injustificada: faltaInjustificada,
-        ferias,
+        ferias: ferias ? 1 : 0,
         advertencia,
         suspensao,
-        atestado_dias: atestadoDias,
+        atestado: atestadoDias,
         percentual_total: percentualTotal,
+        valor_desconto_total: 250 * ((percentualTotal ?? 0) / 100),
         observacao
       }
 
@@ -723,10 +743,10 @@ export default function DescontosPage() {
                       </TableCell>
                       <TableCell className="text-center">{desconto.advertencia}</TableCell>
                       <TableCell className="text-center">{desconto.suspensao}</TableCell>
-                      <TableCell className="text-center">{desconto.atestado_dias}</TableCell>
+                      <TableCell className="text-center">{desconto.atestado}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant={desconto.percentual_total >= 50 ? 'destructive' : 'secondary'}>
-                          {desconto.percentual_total}%
+                        <Badge variant={Number(desconto.percentual_total ?? 0) >= 50 ? 'destructive' : 'secondary'}>
+                          {desconto.percentual_total ?? 0}%
                         </Badge>
                       </TableCell>
                       <TableCell className="text-xs max-w-xs truncate">

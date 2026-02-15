@@ -13,8 +13,9 @@ export interface Colaborador {
   id: string
   matricula: string
   nome: string
-  id_filial: string
-  funcao: string
+  id_filial: string | null
+  filial: string | null
+  funcao: string | null
   ativo: boolean
   created_at: string
   updated_at: string
@@ -33,6 +34,71 @@ export interface Usuario {
   updated_at: string
 }
 
+/** DockProd: recebimento de doca */
+export interface Recebimento {
+  id: string
+  id_filial: string | null
+  filial: string | null
+  fornecedor: string | null
+  motorista: string | null
+  coleta: string | null
+  item: string | null
+  seq: string | null
+  cd_prod: string | null
+  produto: string | null
+  nota_fiscal: string | null
+  dta_receb: string | null
+  usuario_recebto: string | null
+  und: number | null
+  qtd_recebida: number | null
+  qtd_caixas_recebidas: number | null
+  peso_liquido_recebido: number | null
+  id_coleta_recebimento: string | null
+  observacao: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** DockProd: tempo por coleta */
+export interface Tempo {
+  id: string
+  id_filial: string | null
+  empresa: string | null
+  filial: string | null
+  ordem_coleta: string | null
+  inicio_recebimento: string | null
+  final_recebimento: string | null
+  tempo_recebimento: string | null
+  id_coleta_recebimento: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** DockProd: resultado por colaborador (bônus calculado por filial + descontos) */
+export interface Resultado {
+  id: string
+  id_colaborador: string | null
+  id_filial: string | null
+  filial: string | null
+  mes: string | null
+  funcao: string | null
+  acuracidade: number | null
+  checklist: number | null
+  plt_hs: number | null
+  perda: number | null
+  bonus: number | null
+  falta_inj: number
+  advert: number
+  suspensao_ferias: number
+  atestado: number
+  desconto: number
+  filtro: number
+  bonus_final: number | null
+  created_at: string
+  updated_at: string
+}
+
+/** PickProd (legacy): dados de produtividade por carga */
 export interface DadosProdutividade {
   id: string
   id_carga_cliente: string
@@ -80,47 +146,41 @@ export interface DadosProdutividade {
 
 export interface Desconto {
   id: string
-  id_colaborador: string
-  id_filial: string
-  mes: string
-  ano: number
+  id_colaborador: string | null
+  id_filial: string | null
+  colaborador: string | null
+  data_desconto: string | null
+  mes_desconto: string | null
   falta_injustificada: number
-  ferias: boolean
+  ferias: number
   advertencia: number
   suspensao: number
-  atestado_dias: number
-  percentual_total: number
+  atestado: number
+  percentual_total: number | null
+  valor_desconto_total: number | null
   observacao: string | null
   created_at: string
   updated_at: string
 }
 
+/** DockProd: fechamento mensal por colaborador (campos digitacionais: acuracidade, checklist, perda) */
 export interface Fechamento {
   id: string
-  id_colaborador: string
-  id_filial: string
+  id_colaborador: string | null
+  id_filial: string | null
   id_desconto: string | null
-  mes: string
-  ano: number
+  mes: string | null
+  ano: number | null
   peso_liquido_total: number
   volume_total: number
   paletes_total: number
   tempo_total: number
-  kg_hs: number
-  vol_hs: number
-  plt_hs: number
-  erro_separacao_total: number
-  erro_entregas_total: number
-  percentual_erros: number
-  valor_kg_hs: number
-  valor_vol_hs: number
-  valor_plt_hs: number
-  produtividade_bruta: number
-  percentual_descontos: number
-  valor_descontos: number
-  produtividade_final: number
-  meta: number
-  percentual_atingimento: number
+  kg_hs: number | null
+  vol_hs: number | null
+  plt_hs: number | null
+  acuracidade: number | null
+  checklist: number | null
+  perda: number | null
   created_at: string
   updated_at: string
 }

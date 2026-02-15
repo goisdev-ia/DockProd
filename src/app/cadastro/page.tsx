@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { hash } from 'bcryptjs'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,22 +28,9 @@ export default function CadastroPage() {
     setLoading(true)
 
     try {
-      // 1. Verificar se email já existe na tabela usuarios
-      const { data: usuarioExistente } = await supabase
-        .from('usuarios')
-        .select('id')
-        .eq('email', email)
-        .single()
-
-      if (usuarioExistente) {
-        setErro('Este email já está cadastrado.')
-        setLoading(false)
-        return
-      }
-
-      // 2. Criar conta no Supabase Auth primeiro (para obter o UUID)
+      // 1. Criar conta no Supabase Auth primeiro (para obter o UUID)
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-        email,
+        email: email.trim().toLowerCase(),
         password: senha,
         options: {
           data: {
@@ -53,28 +41,40 @@ export default function CadastroPage() {
       })
 
       if (signUpError) {
-        console.error('Erro no Supabase Auth:', signUpError)
-        setErro('Erro ao criar conta. Tente novamente.')
+        const msg =
+          signUpError.message?.toLowerCase().includes('already registered') ||
+          signUpError.message?.toLowerCase().includes('already exists')
+            ? 'Este email já está cadastrado.'
+            : signUpError.message || 'Erro ao criar conta. Tente novamente.'
+        setErro(msg)
         setLoading(false)
         return
       }
 
-      // 3. Inserir novo usuário na tabela usuarios usando o ID do Auth
       const userId = signUpData.user?.id
-      const { error: insertError } = await supabase
-        .from('usuarios')
-        .insert({
-          ...(userId ? { id: userId } : {}),
-          nome,
-          email,
-          senha,
-          tipo: 'novo',
-          ativo: true
-        })
+      if (!userId) {
+        setErro('Erro ao obter dados do usuário. Tente novamente.')
+        setLoading(false)
+        return
+      }
 
-      if (insertError) {
-        console.error('Erro ao inserir na tabela usuarios:', insertError)
-        setErro('Erro ao criar conta. Tente novamente.')
+      // 2. Inserir em public.usuarios via API (service_role contorna RLS)
+      const senhaHash = await hash(senha, 10)
+      const res = await fetch('/api/cadastro-usuario', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: userId,
+          nome,
+          email: email.trim().toLowerCase(),
+          senhaHash,
+          tipo: 'novo',
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setErro((data.error as string) || 'Erro ao criar conta. Tente novamente.')
         setLoading(false)
         return
       }
@@ -95,15 +95,16 @@ export default function CadastroPage() {
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden p-4">
       {/* Background Image */}
-      <div className="absolute inset-0 z-0">
+      <div className="absolute inset-0 z-0 bg-[#1a3d1a]">
         <Image
-          src="/backgroundpickprod2.png"
-          alt="Background"
+          src="/backgroundockprod.png"
+          alt="Background DockProd"
           fill
           className="object-cover"
           priority
           quality={100}
           sizes="100vw"
+          unoptimized
         />
         <div className="absolute inset-0 bg-black/40" />
       </div>
@@ -112,8 +113,8 @@ export default function CadastroPage() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <Image
-              src="/pickprodlogo.png"
-              alt="PickProd Logo"
+              src="/logodockprod.png"
+              alt="DockProd Logo"
               width={280}
               height={280}
               className="object-contain rounded-full w-[140px] h-[140px]"
@@ -124,7 +125,7 @@ export default function CadastroPage() {
           </div>
           <CardTitle className="text-2xl font-bold">Criar Conta</CardTitle>
           <CardDescription>
-            Registre-se no PickProd. Seu acesso será liberado após aprovação.
+            Registre-se no DockProd. Seu acesso será liberado após aprovação.
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleCadastro}>

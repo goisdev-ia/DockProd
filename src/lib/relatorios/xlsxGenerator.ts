@@ -69,11 +69,11 @@ function downloadBlob(blob: Blob, filename: string) {
 export async function gerarRelatorioXLSX(data: FechamentoLinha[], options: XlsxOptions): Promise<void> {
   const { mesNome, ano } = options
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'PickProd'
+  workbook.creator = 'DockProd'
   workbook.created = new Date()
 
   const sheet = workbook.addWorksheet('Relatório Unificado', {
-    headerFooter: { firstHeader: `Relatório PickProd - ${mesNome} ${ano}` },
+    headerFooter: { firstHeader: `Relatório DockProd - ${mesNome} ${ano}` },
   })
 
   // Set columns
@@ -184,7 +184,7 @@ export async function gerarRelatorioXLSX(data: FechamentoLinha[], options: XlsxO
 
   const buffer = await workbook.xlsx.writeBuffer()
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-  downloadBlob(blob, `relatorio-pickprod-${mesNome}-${ano}.xlsx`)
+  downloadBlob(blob, `relatorio-dockprod-${mesNome}-${ano}.xlsx`)
 }
 
 export async function gerarRelatorioXLSXDadosGerais(
@@ -192,11 +192,11 @@ export async function gerarRelatorioXLSXDadosGerais(
   options: XlsxOptionsDadosGerais = {}
 ): Promise<void> {
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'PickProd'
+  workbook.creator = 'DockProd'
   workbook.created = new Date()
 
   const sheet = workbook.addWorksheet('Dados Gerais', {
-    headerFooter: { firstHeader: 'PickProd - Relatório Dados Gerais (Produtividade)' },
+    headerFooter: { firstHeader: 'DockProd - Relatório Dados Gerais (Produtividade)' },
   })
 
   sheet.columns = DADOS_GERAIS_COLUMNS.map(c => ({
@@ -279,7 +279,7 @@ export async function gerarRelatorioXLSXDadosGerais(
   const buffer = await workbook.xlsx.writeBuffer()
   const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const filename = options.dataGerado
-    ? `relatorio-dados-gerais-pickprod-${options.dataGerado}.xlsx`
-    : `relatorio-dados-gerais-pickprod-${new Date().toISOString().slice(0, 10)}.xlsx`
+    ? `relatorio-dados-gerais-dockprod-${options.dataGerado}.xlsx`
+    : `relatorio-dados-gerais-dockprod-${new Date().toISOString().slice(0, 10)}.xlsx`
   downloadBlob(blob, filename)
 }

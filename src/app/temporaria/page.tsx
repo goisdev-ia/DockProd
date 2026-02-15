@@ -46,8 +46,8 @@ export default function TemporariaPage() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <Image
-              src="/pickprodlogo.png"
-              alt="PickProd Logo"
+              src="/logodockprod.png"
+              alt="DockProd Logo"
               width={100}
               height={100}
               className="object-contain rounded-full"
@@ -63,13 +63,13 @@ export default function TemporariaPage() {
           <div className="text-center space-y-4">
             <div className="p-6 bg-amber-50 border border-amber-200 rounded-lg">
               <div className="flex justify-center mb-3">
-                <Image
-                  src="/pickprodlogo.png"
-                  alt="PickProd Logo"
-                  width={80}
-                  height={80}
-                  className="object-contain opacity-80"
-                />
+<Image
+                src="/logodockprod.png"
+                alt="DockProd Logo"
+                width={80}
+                height={80}
+                className="object-contain opacity-80"
+              />
               </div>
               <p className="text-gray-700 mb-2">
                 Sua conta foi criada com sucesso!

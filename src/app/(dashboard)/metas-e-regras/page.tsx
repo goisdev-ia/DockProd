@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Target, Loader2, AlertCircle } from 'lucide-react'
+import { Target, Loader2, AlertCircle, MapPin } from 'lucide-react'
+import { META_PLT_HS_POR_FILIAL } from '@/lib/calculos'
 
 interface RegrasDescontos {
   atestado?: { percent?: number; ate_dias?: number; acima_dias?: number }[]
@@ -16,15 +17,30 @@ interface RegrasDescontos {
   erro_entregas_percent?: number
 }
 
+interface FilialRow {
+  id: string
+  codigo: string
+  nome: string
+}
+
+const META_ACURACIDADE = 95
+const META_CHECKLIST = 90
+const VALOR_ACURACIDADE = 100
+const VALOR_CHECKLIST = 50
+const VALOR_PLT_HS = 100
+const VALOR_PERDA = 100
+const META_PERDA = 1.7
+const BONUS_MAXIMO = 250
+
+const FUNCOES_ACURACIDADE_CHECKLIST = 'Aux. Exp/Receb, Conferente, Empilhador, Aux. de Estoque'
+const FUNCOES_PLT_HS = 'Aux. Exp/Receb, Conferente, Empilhador'
+const FUNCOES_PERDA = 'Somente Aux. de Estoque'
+
 export default function MetasERegrasPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
-  const [metaValor, setMetaValor] = useState<number>(300)
   const [regrasDescontos, setRegrasDescontos] = useState<RegrasDescontos | null>(null)
-  const [percentuaisMetricas, setPercentuaisMetricas] = useState<{ kg_hora?: number; vol_hora?: number; plt_hora?: number } | null>(null)
-  const [regrasKgHora, setRegrasKgHora] = useState<Array<{ kg_hora: number; valor: number }>>([])
-  const [regrasVolHora, setRegrasVolHora] = useState<Array<{ vol_hora: number; valor: number }>>([])
-  const [regrasPltHora, setRegrasPltHora] = useState<Array<{ plt_hora: number; valor: number }>>([])
+  const [filiais, setFiliais] = useState<FilialRow[]>([])
 
   useEffect(() => {
     const supabase = createClient()
@@ -32,26 +48,16 @@ export default function MetasERegrasPage() {
       setLoading(true)
       setErro(null)
       try {
-        const { data, error } = await supabase
-          .from('configuracoes')
-          .select('chave, valor')
-          .in('chave', [
-            'meta_colaborador',
-            'regras_descontos',
-            'percentuais_metricas',
-            'regras_kg_hora',
-            'regras_vol_hora',
-            'regras_plt_hora',
-          ])
-        if (error) throw error
-        const map = Object.fromEntries((data ?? []).map((r) => [r.chave, r.valor]))
-        const meta = (map.meta_colaborador as { valor?: number })?.valor ?? 300
-        setMetaValor(meta)
-        setRegrasDescontos((map.regras_descontos as RegrasDescontos) ?? null)
-        setPercentuaisMetricas((map.percentuais_metricas as { kg_hora?: number; vol_hora?: number; plt_hora?: number }) ?? null)
-        setRegrasKgHora(Array.isArray(map.regras_kg_hora) ? (map.regras_kg_hora as Array<{ kg_hora: number; valor: number }>) : [])
-        setRegrasVolHora(Array.isArray(map.regras_vol_hora) ? (map.regras_vol_hora as Array<{ vol_hora: number; valor: number }>) : [])
-        setRegrasPltHora(Array.isArray(map.regras_plt_hora) ? (map.regras_plt_hora as Array<{ plt_hora: number; valor: number }>) : [])
+        const [configRes, filiaisRes] = await Promise.all([
+          supabase.from('configuracoes').select('chave, valor').eq('chave', 'regras_descontos'),
+          supabase.from('filiais').select('id, codigo, nome').eq('ativo', true).order('codigo'),
+        ])
+        if (configRes.error) throw configRes.error
+        if (filiaisRes.error) throw filiaisRes.error
+
+        const configMap = Object.fromEntries((configRes.data ?? []).map((r) => [r.chave, r.valor]))
+        setRegrasDescontos((configMap.regras_descontos as RegrasDescontos) ?? null)
+        setFiliais((filiaisRes.data ?? []) as FilialRow[])
       } catch (e) {
         setErro(e instanceof Error ? e.message : 'Erro ao carregar configurações')
       } finally {
@@ -62,6 +68,8 @@ export default function MetasERegrasPage() {
   }, [])
 
   const pct = (v: number | undefined) => (v != null ? Math.round(Number(v) * 100) : 0)
+
+  const getMetaPltHs = (codigo: string) => META_PLT_HS_POR_FILIAL[codigo] ?? 23
 
   if (loading) {
     return (
@@ -92,112 +100,101 @@ export default function MetasERegrasPage() {
         </Card>
       )}
 
-      {/* Sessão A — Metas & Indicadores (Produtividade) */}
+      {/* Sessão 1 — Metas e Indicadores (Produtividade) — por filial */}
       <Card>
         <CardHeader>
-          <CardTitle>Metas e indicadores (produtividade)</CardTitle>
+          <CardTitle>Metas e Indicadores (Produtividade)</CardTitle>
           <CardDescription>
-            Peso de cada métrica no cálculo e faixas mínimas para bonificação
+            Metas mínimas para atingir, valor do bônus e funções elegíveis por indicador
           </CardDescription>
         </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Indicador</TableHead>
-                <TableHead>Fórmula / regra</TableHead>
-                <TableHead className="text-right">Peso / meta</TableHead>
-                <TableHead>Observações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell className="font-medium">Kg/Hora</TableCell>
-                <TableCell>Peso líquido ÷ tempo (h). Valor em R$ pela faixa atingida × peso.</TableCell>
-                <TableCell className="text-right">{pct(percentuaisMetricas?.kg_hora)}%</TableCell>
-                <TableCell>50% do bônus. Faixas: ver tabela de regras KG/Hora.</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell className="font-medium">Vol/Hora</TableCell>
-                <TableCell>Volume ÷ tempo (h). Valor em R$ pela faixa × peso.</TableCell>
-                <TableCell className="text-right">{pct(percentuaisMetricas?.vol_hora)}%</TableCell>
-                <TableCell>30% do bônus.</TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell className="font-medium">Plt/Hora</TableCell>
-                <TableCell>Paletes ÷ tempo (h). Valor em R$ pela faixa × peso.</TableCell>
-                <TableCell className="text-right">{pct(percentuaisMetricas?.plt_hora)}%</TableCell>
-                <TableCell>20% do bônus.</TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-          {regrasKgHora.length > 0 && (
-            <div className="mt-4">
-              <p className="text-sm font-medium mb-2">Faixas Kg/Hora</p>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Kg/Hora mín.</TableHead>
-                    <TableHead className="text-right">Valor R$</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {regrasKgHora.map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell>{r.kg_hora}</TableCell>
-                      <TableCell className="text-right">R$ {r.valor}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-          {regrasVolHora.length > 0 && (
-            <div className="mt-4">
-              <p className="text-sm font-medium mb-2">Faixas Vol/Hora</p>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Vol/Hora mín.</TableHead>
-                    <TableHead className="text-right">Valor R$</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {regrasVolHora.map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell>{r.vol_hora}</TableCell>
-                      <TableCell className="text-right">R$ {r.valor}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-          {regrasPltHora.length > 0 && (
-            <div className="mt-4">
-              <p className="text-sm font-medium mb-2">Faixas Plt/Hora</p>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Plt/Hora mín.</TableHead>
-                    <TableHead className="text-right">Valor R$</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {regrasPltHora.map((r, i) => (
-                    <TableRow key={i}>
-                      <TableCell>{r.plt_hora}</TableCell>
-                      <TableCell className="text-right">R$ {r.valor}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+        <CardContent className="space-y-6">
+          {filiais.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhuma filial cadastrada.</p>
+          ) : (
+            filiais.map((filial) => (
+              <Card key={filial.id} className="border">
+                <CardHeader className="py-4">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    Filial {filial.codigo} – {filial.nome}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Indicador</TableHead>
+                        <TableHead>Meta mínima para atingir</TableHead>
+                        <TableHead className="text-right">Valor do bônus</TableHead>
+                        <TableHead>Funções elegíveis</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="font-medium">Acuracidade de Estoque</TableCell>
+                        <TableCell>≥ {META_ACURACIDADE}% → Atinge meta</TableCell>
+                        <TableCell className="text-right">R$ {VALOR_ACURACIDADE.toFixed(2).replace('.', ',')}</TableCell>
+                        <TableCell>{FUNCOES_ACURACIDADE_CHECKLIST}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-medium">Checklist</TableCell>
+                        <TableCell>≥ {META_CHECKLIST}% → Atinge meta</TableCell>
+                        <TableCell className="text-right">R$ {VALOR_CHECKLIST.toFixed(2).replace('.', ',')}</TableCell>
+                        <TableCell>{FUNCOES_ACURACIDADE_CHECKLIST}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-medium">Palete por Hora</TableCell>
+                        <TableCell>{getMetaPltHs(filial.codigo)} paletes/hora → Atinge meta</TableCell>
+                        <TableCell className="text-right">R$ {VALOR_PLT_HS.toFixed(2).replace('.', ',')}</TableCell>
+                        <TableCell>{FUNCOES_PLT_HS}</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="font-medium">Perda</TableCell>
+                        <TableCell>≤ {META_PERDA.toFixed(2).replace('.', ',')}% → Atinge meta</TableCell>
+                        <TableCell className="text-right">R$ {VALOR_PERDA.toFixed(2).replace('.', ',')}</TableCell>
+                        <TableCell>{FUNCOES_PERDA}</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                  <p className="text-sm font-medium mt-4 text-muted-foreground">
+                    Bônus máximo por colaborador: R$ {BONUS_MAXIMO.toFixed(2).replace('.', ',')}
+                  </p>
+                </CardContent>
+              </Card>
+            ))
           )}
         </CardContent>
       </Card>
 
-      {/* Sessão B — Descontos (% por tipo) */}
+      {/* Sessão 2 — Como funciona o cálculo */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Como funciona o cálculo</CardTitle>
+          <CardDescription>Explicação didática do modelo de bonificação</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <ul className="list-disc list-inside space-y-2">
+            <li>
+              <strong>Como cada indicador é avaliado:</strong> Cada indicador tem uma meta mínima. Se o colaborador atingir ou superar a meta no mês, ele recebe o valor em R$ correspondente.
+            </li>
+            <li>
+              <strong>Bônus somatório:</strong> O bônus bruto é a soma dos valores de todas as metas atingidas (Acuracidade + Checklist + Palete/Hora ou Perda, conforme a função).
+            </li>
+            <li>
+              <strong>Limite de R$ 250:</strong> O valor final de bônus por colaborador não pode ultrapassar R$ 250,00, mesmo que a soma das metas seja maior.
+            </li>
+            <li>
+              <strong>Metas não atingidas:</strong> Cada meta só gera bônus se o percentual ou valor mínimo for atingido. Abaixo da meta, o valor daquele indicador é R$ 0,00.
+            </li>
+            <li>
+              <strong>Avaliação mensal:</strong> As metas são avaliadas mensalmente com base nos dados de produtividade, acuracidade, checklist e perda do período.
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+
+      {/* Sessão 3 — Descontos (% por tipo) */}
       <Card>
         <CardHeader>
           <CardTitle>Descontos (% por tipo)</CardTitle>
@@ -255,7 +252,7 @@ export default function MetasERegrasPage() {
         </CardContent>
       </Card>
 
-      {/* Sessão C — Meta total de atingimento (R$) */}
+      {/* Sessão 4 — Meta total de atingimento (R$) */}
       <Card>
         <CardHeader>
           <CardTitle>Meta total de atingimento (R$)</CardTitle>
@@ -265,39 +262,12 @@ export default function MetasERegrasPage() {
         </CardHeader>
         <CardContent>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-green-700">R$ {metaValor.toLocaleString('pt-BR')}</span>
+            <span className="text-3xl font-bold text-green-700">R$ 250,00</span>
             <span className="text-muted-foreground">por colaborador</span>
           </div>
           <p className="text-sm text-muted-foreground mt-2">
             O atingimento é calculado como (Produtividade final ÷ Meta) × 100%. Acima de 100% o colaborador atinge a meta.
           </p>
-        </CardContent>
-      </Card>
-
-      {/* Sessão D — Como funciona */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Como funciona o cálculo</CardTitle>
-          <CardDescription>Passos objetivos usados no sistema</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <ul className="list-disc list-inside space-y-2">
-            <li>
-              <strong>Produtividade bruta:</strong> Para cada colaborador somam-se peso, volume e paletes no período; calculam-se Kg/Hs, Vol/Hs e Plt/Hs. Cada métrica entra nas faixas (regras) e gera um valor em R$. A produtividade bruta é a soma dos três valores ponderados pelos percentuais (50% kg, 30% vol, 20% plt).
-            </li>
-            <li>
-              <strong>Descontos por erros:</strong> Cada erro de separação e de entrega aplica um percentual (configurável) sobre a produtividade. O total de descontos por erros é limitado a 100%.
-            </li>
-            <li>
-              <strong>Descontos por tipo (faltas, atestado, etc.):</strong> Conforme os percentuais configurados por tipo (falta injustificada, férias, advertência, suspensão, atestado por dias), calcula-se um percentual total que é aplicado sobre a produtividade bruta.
-            </li>
-            <li>
-              <strong>Resultado final:</strong> Produtividade bruta menos descontos por erros e menos descontos por tipo. O valor não pode ser negativo.
-            </li>
-            <li>
-              <strong>Atingimento da meta:</strong> (Produtividade final ÷ Meta em R$) × 100%. Meta atual: R$ {metaValor.toLocaleString('pt-BR')}.
-            </li>
-          </ul>
         </CardContent>
       </Card>
     </div>

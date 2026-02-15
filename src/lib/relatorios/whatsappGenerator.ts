@@ -176,7 +176,7 @@ ${linhasSeparadoras}
 ${linhasSeparadoras}
 
 _Relatório gerado automaticamente_
-_Sistema PickProd ${String.fromCodePoint(0x00a9)} ${new Date().getFullYear()}_
+_Sistema DockProd ${String.fromCodePoint(0x00a9)} ${new Date().getFullYear()}_
   `.trim()
 }
 

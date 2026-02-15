@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { hash } from 'bcryptjs'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -444,19 +445,25 @@ export default function ConfiguracoesPage() {
     if (!usuarioEditando) return
 
     try {
-      // Converter "nenhuma" para null antes de salvar
       const filialParaSalvar = filialUsuario === 'nenhuma' || filialUsuario === '' ? null : filialUsuario
+      const novaSenhaHash = senhaUsuario?.trim()
+        ? await hash(senhaUsuario.trim(), 10)
+        : null
 
-      // Usar função RPC para evitar problemas de RLS
-      const { error } = await supabase.rpc('update_usuario_by_admin', {
-        usuario_id: usuarioEditando.id,
-        novo_nome: nomeUsuario,
-        novo_email: emailUsuario,
-        nova_senha: senhaUsuario || null,
-        novo_tipo: tipoUsuario,
-        nova_filial: filialParaSalvar,
-        novo_ativo: ativoUsuario
-      })
+      const payload: Record<string, unknown> = {
+        nome: nomeUsuario,
+        email: emailUsuario,
+        tipo: tipoUsuario,
+        id_filial: filialParaSalvar,
+        ativo: ativoUsuario,
+        updated_at: new Date().toISOString(),
+      }
+      if (novaSenhaHash) payload.senha = novaSenhaHash
+
+      const { error } = await supabase
+        .from('usuarios')
+        .update(payload)
+        .eq('id', usuarioEditando.id)
 
       if (error) throw error
 
@@ -816,7 +823,7 @@ export default function ConfiguracoesPage() {
                 <Globe className="h-5 w-5 text-muted-foreground" />
                 <div>
                   <h3 className="font-semibold">Nome e logo do app</h3>
-                  <p className="text-sm text-muted-foreground">PickProd - Cada pedido conta. Logo configurável em versão futura.</p>
+                  <p className="text-sm text-muted-foreground">DockProd - Da doca ao resultado. Logo configurável em versão futura.</p>
                 </div>
               </div>
               <div className="p-4 border rounded-lg flex items-center gap-3">

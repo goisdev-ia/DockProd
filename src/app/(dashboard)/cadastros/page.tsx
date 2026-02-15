@@ -12,9 +12,12 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Edit, Trash2, Plus, UserPlus, Download, Upload, Building2 } from 'lucide-react'
+import { Edit, Trash2, Plus, UserPlus, Download, Upload, Building2, Briefcase } from 'lucide-react'
 import type { Colaborador } from '@/types/database'
 import * as XLSX from 'xlsx'
+
+/** Funções disponíveis para colaboradores (produtividade). Usuário do app e usuário recebimento da planilha não têm vínculo com colaboradores. */
+const FUNCOES_COLABORADOR = ['Conferente', 'Empilhador', 'Aux. Exp/Receb', 'Aux. de Estoque'] as const
 
 interface ColaboradorExtendido extends Colaborador {
   filiais?: { nome: string }
@@ -41,7 +44,7 @@ export default function CadastrosPage() {
   const [matricula, setMatricula] = useState('')
   const [nome, setNome] = useState('')
   const [filialSelecionada, setFilialSelecionada] = useState('')
-  const [funcao, setFuncao] = useState('Separador')
+  const [funcao, setFuncao] = useState<string>(FUNCOES_COLABORADOR[0])
 
   // Filiais CRUD
   const [filiaisLista, setFiliaisLista] = useState<FilialRow[]>([])
@@ -60,6 +63,7 @@ export default function CadastrosPage() {
   const [colaboradorParaDeletar, setColaboradorParaDeletar] = useState<string | null>(null)
   const [confirmDeleteFilialOpen, setConfirmDeleteFilialOpen] = useState(false)
   const [filialParaDeletar, setFilialParaDeletar] = useState<string | null>(null)
+  const [dialogFuncoesAberto, setDialogFuncoesAberto] = useState(false)
 
   const inputFileRef = useRef<HTMLInputElement>(null)
 
@@ -177,7 +181,7 @@ export default function CadastrosPage() {
           erros++
           continue
         }
-        const funcao = String(row['Função'] ?? row['funcao'] ?? 'Separador').trim()
+        const funcao = String(row['Função'] ?? row['funcao'] ?? FUNCOES_COLABORADOR[0]).trim()
         const { error } = await supabase.from('colaboradores').upsert(
           { matricula, nome, id_filial: idFilial, funcao, ativo: true },
           { onConflict: 'matricula' }
@@ -206,8 +210,12 @@ export default function CadastrosPage() {
     setColaboradorEditando(colaborador)
     setMatricula(colaborador.matricula)
     setNome(colaborador.nome)
-    setFilialSelecionada(colaborador.id_filial)
-    setFuncao(colaborador.funcao)
+    setFilialSelecionada(colaborador.id_filial ?? '')
+    setFuncao(
+      colaborador.funcao && (FUNCOES_COLABORADOR as readonly string[]).includes(colaborador.funcao)
+        ? colaborador.funcao
+        : FUNCOES_COLABORADOR[0]
+    )
     setDialogAberto(true)
   }
 
@@ -215,7 +223,7 @@ export default function CadastrosPage() {
     setMatricula('')
     setNome('')
     setFilialSelecionada('')
-    setFuncao('Separador')
+    setFuncao(FUNCOES_COLABORADOR[0])
   }
 
   const salvar = async () => {
@@ -354,6 +362,10 @@ export default function CadastrosPage() {
               <Button onClick={abrirNovo} className="bg-green-600 hover:bg-green-700">
                 <UserPlus className="w-4 h-4 mr-2" />
                 Novo Colaborador
+              </Button>
+              <Button variant="outline" onClick={() => setDialogFuncoesAberto(true)}>
+                <Briefcase className="w-4 h-4 mr-2" />
+                Funções
               </Button>
               <Button variant="outline" onClick={exportarColaboradores}>
                 <Download className="w-4 h-4 mr-2" />
@@ -494,10 +506,9 @@ export default function CadastrosPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Separador">Separador</SelectItem>
-                        <SelectItem value="Conferente">Conferente</SelectItem>
-                        <SelectItem value="Supervisor">Supervisor</SelectItem>
-                        <SelectItem value="Líder">Líder</SelectItem>
+                        {FUNCOES_COLABORADOR.map((f) => (
+                          <SelectItem key={f} value={f}>{f}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -610,6 +621,30 @@ export default function CadastrosPage() {
           </Dialog>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={dialogFuncoesAberto} onOpenChange={setDialogFuncoesAberto}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cadastro de Funções</DialogTitle>
+            <DialogDescription>
+              Funções disponíveis para atribuir aos colaboradores. A produtividade é medida com base nos colaboradores cadastrados na tabela de colaboradores.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <ul className="list-disc list-inside space-y-1 text-sm">
+              {FUNCOES_COLABORADOR.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+            <p className="text-sm text-muted-foreground border-t pt-4">
+              <strong>Importante:</strong> O usuário de recebimento (planilha) e o usuário do aplicativo (login) não têm associação com os colaboradores. O aplicativo mede a produtividade dos colaboradores cadastrados aqui; o nome do colaborador deve coincidir com o &quot;Usuário Recebto&quot; da planilha para o vínculo dos dados.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setDialogFuncoesAberto(false)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={confirmSalvarColabOpen}

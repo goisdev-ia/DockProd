@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { registrarLog } from '@/lib/logs'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
+
+  useEffect(() => {
+    const erroUrl = searchParams.get('erro')
+    if (erroUrl) setErro(decodeURIComponent(erroUrl))
+  }, [searchParams])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -26,73 +32,72 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      // 1. Verificar credenciais na tabela 'usuarios' do banco
-      const { data: usuario, error: userError } = await supabase
+      // 1. Login via Supabase Auth (compatível com RLS: depois carregamos usuario por auth.uid())
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: senha,
+      })
+
+      if (signInError) {
+        const msg =
+          signInError.message?.toLowerCase().includes('invalid login')
+            ? 'Email ou senha incorretos.'
+            : signInError.message?.toLowerCase().includes('email not confirmed')
+              ? 'Confirme seu email antes de entrar.'
+              : 'Email ou senha incorretos. Verifique se o usuário existe no Supabase Auth (Authentication > Users).'
+        setErro(msg)
+        setLoading(false)
+        return
+      }
+
+      const userId = signInData.user?.id
+      if (!userId) {
+        setErro('Erro ao obter sessão. Tente novamente.')
+        setLoading(false)
+        return
+      }
+
+      // 2. Carregar perfil em usuarios (RLS permite SELECT onde id = auth.uid())
+      let { data: usuario, error: userError } = await supabase
         .from('usuarios')
         .select('*')
-        .eq('email', email)
-        .eq('senha', senha)
+        .eq('id', userId)
         .single()
 
+      // Se não existe em usuarios mas existe no Auth (ex.: confirmou email e saiu antes do insert), criar registro
+      if ((userError || !usuario) && userId) {
+        const res = await fetch('/api/backfill-usuario', {
+          method: 'POST',
+          credentials: 'include',
+        })
+        if (res.ok) {
+          const retry = await supabase
+            .from('usuarios')
+            .select('*')
+            .eq('id', userId)
+            .single()
+          usuario = retry.data
+          userError = retry.error
+        }
+      }
+
       if (userError || !usuario) {
-        setErro('Email ou senha incorretos.')
+        setErro('Perfil não encontrado. Entre em contato com o administrador.')
+        await supabase.auth.signOut()
         setLoading(false)
         return
       }
 
       if (!usuario.ativo) {
         setErro('Usuário desativado. Entre em contato com o administrador.')
+        await supabase.auth.signOut()
         setLoading(false)
         return
       }
 
-      // 2. Tentar fazer login no Supabase Auth
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password: senha,
-      })
-
-      if (signInError) {
-        // 3. Se o usuário não existe no Auth, criar conta automaticamente
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email,
-          password: senha,
-          options: {
-            data: {
-              nome: usuario.nome,
-              tipo: usuario.tipo,
-            }
-          }
-        })
-
-        if (signUpError) {
-          console.error('Erro ao criar conta Auth:', signUpError)
-          setErro('Erro ao autenticar. Tente novamente.')
-          setLoading(false)
-          return
-        }
-
-        // 4. Após signUp, tentar signIn novamente para obter sessão
-        const { error: signIn2Error } = await supabase.auth.signInWithPassword({
-          email,
-          password: senha,
-        })
-
-        if (signIn2Error) {
-          console.error('Erro no segundo signIn:', signIn2Error)
-          // Pode ser que o Supabase exija confirmação de email.
-          // Vamos tentar prosseguir mesmo assim se o signUp retornou sessão
-          if (!signUpData?.session) {
-            setErro('Conta criada. Verifique seu email ou tente fazer login novamente.')
-            setLoading(false)
-            return
-          }
-        }
-      }
-
       await registrarLog(supabase, 'LOGIN')
 
-      // 5. Redirecionar baseado no tipo de usuário
+      // 3. Redirecionar baseado no tipo de usuário
       if (usuario.tipo === 'novo') {
         router.push('/temporaria')
       } else {
@@ -109,16 +114,17 @@ export default function LoginPage() {
 
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden p-4">
-      {/* Background Image */}
-      <div className="absolute inset-0 z-0">
+      {/* Background: arquivo em public/backgroundockprod.png */}
+      <div className="absolute inset-0 z-0 bg-[#1a3d1a]">
         <Image
-          src="/backgroundpickprod2.png"
-          alt="Background"
+          src="/backgroundockprod.png"
+          alt="Background DockProd"
           fill
           className="object-cover"
           priority
           quality={100}
           sizes="100vw"
+          unoptimized
         />
         <div className="absolute inset-0 bg-black/40" />
       </div>
@@ -127,8 +133,8 @@ export default function LoginPage() {
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
             <Image
-              src="/pickprodlogo.png"
-              alt="PickProd Logo"
+              src="/logodockprod.png"
+              alt="DockProd Logo"
               width={280}
               height={280}
               className="object-contain rounded-full w-[140px] h-[140px]"
@@ -137,8 +143,8 @@ export default function LoginPage() {
               style={{ imageRendering: 'auto' }}
             />
           </div>
-          <CardTitle className="text-2xl font-bold">PickProd</CardTitle>
-          <CardDescription>Cada pedido conta</CardDescription>
+          <CardTitle className="text-2xl font-bold">DockProd</CardTitle>
+          <CardDescription>Da doca ao resultado</CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>
           <CardContent className="space-y-4">

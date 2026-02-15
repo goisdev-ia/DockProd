@@ -54,10 +54,10 @@ const navItems: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/upload', label: 'Upload', icon: Upload, permitido: ['colaborador', 'admin'] },
   { href: '/produtividade', label: 'Produtividade', icon: BarChart3, permitido: ['colaborador', 'admin'] },
-  { href: '/descontos', label: 'Descontos', icon: Percent, permitido: ['colaborador', 'admin'] },
+  { href: '/descontos', label: 'Descontos', icon: Percent, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/resultado', label: 'Resultado', icon: Trophy, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/relatorios', label: 'Relatórios', icon: FileText, permitido: ['colaborador', 'admin', 'gestor'] },
-  { href: '/metas-e-regras', label: 'Metas e Regras', icon: Target, permitido: ['colaborador', 'admin', 'gestor'] },
+  { href: '/metas-e-regras', label: 'Metas e Regras', icon: Target, permitido: ['colaborador', 'admin'] },
   { href: '/cadastros', label: 'Cadastros', icon: Users, permitido: ['colaborador', 'admin'] },
   { href: '/perfil', label: 'Perfil', icon: User, permitido: ['colaborador', 'admin', 'gestor'] },
   { href: '/configuracoes', label: 'Configurações', icon: Settings, permitido: ['admin'] },
@@ -150,16 +150,16 @@ function SidebarContent({
       )}>
         <Link href="/dashboard" className="flex items-center gap-3 min-w-0">
           <Image
-            src="/pickprodlogo.png"
-            alt="PickProd Logo"
+            src="/logodockprod.png"
+            alt="DockProd Logo"
             width={38}
             height={38}
             className="shrink-0 rounded-full object-contain"
           />
           {isExpanded && (
             <div className="min-w-0">
-              <div className="font-bold text-base leading-tight text-sidebar-foreground">PickProd</div>
-              <div className="text-[11px] text-sidebar-foreground/50 truncate">Cada pedido conta</div>
+              <div className="font-bold text-base leading-tight text-sidebar-foreground">DockProd</div>
+              <div className="text-[11px] text-sidebar-foreground/50 truncate">Da doca ao resultado</div>
             </div>
           )}
         </Link>
@@ -314,7 +314,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
 
   // Inicializar tema (defer setState para evitar cascading renders)
   useEffect(() => {
-    const temaArmazenado = localStorage.getItem('pickprod-tema') || 'light'
+    const temaArmazenado = localStorage.getItem('dockprod-tema') ?? 'light'
     document.documentElement.classList.toggle('dark', temaArmazenado === 'dark')
     const id = setTimeout(() => setTema(temaArmazenado), 0)
     return () => clearTimeout(id)
@@ -323,7 +323,7 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
   const toggleTema = () => {
     const novoTema = tema === 'dark' ? 'light' : 'dark'
     setTema(novoTema)
-    localStorage.setItem('pickprod-tema', novoTema)
+    localStorage.setItem('dockprod-tema', novoTema)
     document.documentElement.classList.toggle('dark', novoTema === 'dark')
   }
 
@@ -412,13 +412,13 @@ export function Sidebar({ children }: { children: React.ReactNode }) {
               </Sheet>
               <Link href="/dashboard" className="flex items-center gap-2">
                 <Image
-                  src="/pickprodlogo.png"
-                  alt="PickProd Logo"
+                  src="/logodockprod.png"
+                  alt="DockProd Logo"
                   width={32}
                   height={32}
                   className="rounded-full object-contain"
                 />
-                <span className="font-bold text-sidebar-foreground">PickProd</span>
+                <span className="font-bold text-sidebar-foreground">DockProd</span>
               </Link>
               <Avatar className="h-8 w-8">
                 {avatarUrl && <AvatarImage src={avatarUrl} alt={nomeUsuario} />}

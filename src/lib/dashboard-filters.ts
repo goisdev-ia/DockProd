@@ -29,7 +29,7 @@ export type PeriodoOption =
 
 /**
  * Retorna data_inicio e data_fim (Date) para o período selecionado.
- * Usado para filtrar dados_produtividade por data_carga.
+ * Usado para filtrar recebimentos por dta_receb (DockProd) ou data_carga (PickProd).
  */
 export function getDatasPorPeriodo(periodo: PeriodoOption): {
   data_inicio: Date

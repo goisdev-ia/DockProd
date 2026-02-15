@@ -10,623 +10,487 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
-import { Calculator, RefreshCw, TrendingUp, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Calculator, RefreshCw, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { FilterToggle } from '@/components/FilterToggle'
 import { toast } from 'sonner'
 import {
-  calcularProdutividadeBruta,
-  calcularPercentualErros,
-  calcularProdutividadeFinal,
-  calcularPercentualAtingimento,
   obterCorProdutividade,
-  type RegrasCalculo
+  calcularValorAcuracidade,
+  calcularValorChecklist,
+  calcularValorPltHsPorFilial,
+  calcularValorPerda,
+  calcularBonusBrutoDockProd,
+  intervalToHours,
+  contarPaletes,
 } from '@/lib/calculos'
 import { getDatasPorMesAno, toISODate } from '@/lib/dashboard-filters'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
 import { registrarLog } from '@/lib/logs'
-import { filterOutNaoInformado } from '@/lib/nao-informado'
-import type { Fechamento } from '@/types/database'
+import type { Fechamento, Resultado as ResultadoType } from '@/types/database'
 
-interface FechamentoExtendido extends Fechamento {
+const META_BONUS = 250
+const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+/** Normaliza nome para match (trim, lowercase, remove acentos) */
+function normalizeNome(s: string): string {
+  return (s ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+}
+
+interface FechamentoRow extends Fechamento {
   colaborador_nome?: string
   colaborador_matricula?: string
+  colaborador_funcao?: string
   filial_nome?: string
+  filial_codigo?: string
+  colaboradores?: { nome?: string; matricula?: string; funcao?: string; filiais?: { codigo: string; nome: string } }
+}
+
+interface ResultadoRow extends ResultadoType {
+  colaborador_nome?: string
+  colaborador_matricula?: string
 }
 
 export default function ResultadoPage() {
-  const [fechamentos, setFechamentos] = useState<FechamentoExtendido[]>([])
-  const [fechamentosFiltrados, setFechamentosFiltrados] = useState<FechamentoExtendido[]>([])
+  const [fechamentos, setFechamentos] = useState<FechamentoRow[]>([])
+  const [resultados, setResultados] = useState<ResultadoRow[]>([])
+  const [fechamentosFiltrados, setFechamentosFiltrados] = useState<FechamentoRow[]>([])
+  const [resultadosFiltrados, setResultadosFiltrados] = useState<ResultadoRow[]>([])
   const [loading, setLoading] = useState(true)
   const [calculando, setCalculando] = useState(false)
-  const [regrasCalculo, setRegrasCalculo] = useState<RegrasCalculo | null>(null)
-  const [regrasDescontosErros, setRegrasDescontosErros] = useState<{ erro_separacao_percent?: number; erro_entregas_percent?: number } | null>(null)
-
-  // Paginação
-  const [paginaAtual, setPaginaAtual] = useState(1)
-  const registrosPorPagina = 50
-  const totalPaginas = Math.ceil(fechamentosFiltrados.length / registrosPorPagina)
-  const dadosPaginados = fechamentosFiltrados.slice(
-    (paginaAtual - 1) * registrosPorPagina,
-    paginaAtual * registrosPorPagina
-  )
-
   const [mesSelecionado, setMesSelecionado] = useState('')
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear())
-
-  // Filtros adicionais
-  const [filtroColaborador, setFiltroColaborador] = useState('todos')
+  const [paginaFechamento, setPaginaFechamento] = useState(1)
+  const [paginaResultado, setPaginaResultado] = useState(1)
   const [filtroFilial, setFiltroFilial] = useState('todas')
+  const [filtroColaborador, setFiltroColaborador] = useState('todos')
   const [filtroBusca, setFiltroBusca] = useState('')
-  const [filtroVlrKgHsMin, setFiltroVlrKgHsMin] = useState('')
-  const [filtroVlrKgHsMax, setFiltroVlrKgHsMax] = useState('')
-  const [filtroVlrVolHsMin, setFiltroVlrVolHsMin] = useState('')
-  const [filtroVlrVolHsMax, setFiltroVlrVolHsMax] = useState('')
-  const [filtroVlrPltHsMin, setFiltroVlrPltHsMin] = useState('')
-  const [filtroVlrPltHsMax, setFiltroVlrPltHsMax] = useState('')
-  const [filtroProdBrutaMin, setFiltroProdBrutaMin] = useState('')
-  const [filtroProdBrutaMax, setFiltroProdBrutaMax] = useState('')
-  const [filtroProdFinalMin, setFiltroProdFinalMin] = useState('')
-  const [filtroProdFinalMax, setFiltroProdFinalMax] = useState('')
-  const [filtroMetaMin, setFiltroMetaMin] = useState('')
-  const [filtroMetaMax, setFiltroMetaMax] = useState('')
-  const [filtroMatricula, setFiltroMatricula] = useState('')
   const [buscaDebounced, setBuscaDebounced] = useState('')
-  const [matriculaDebounced, setMatriculaDebounced] = useState('')
-  const [filtroVlrKgHsMinApplied, setFiltroVlrKgHsMinApplied] = useState('')
-  const [filtroVlrKgHsMaxApplied, setFiltroVlrKgHsMaxApplied] = useState('')
-  const [filtroVlrVolHsMinApplied, setFiltroVlrVolHsMinApplied] = useState('')
-  const [filtroVlrVolHsMaxApplied, setFiltroVlrVolHsMaxApplied] = useState('')
-  const [filtroVlrPltHsMinApplied, setFiltroVlrPltHsMinApplied] = useState('')
-  const [filtroVlrPltHsMaxApplied, setFiltroVlrPltHsMaxApplied] = useState('')
-  const [filtroProdBrutaMinApplied, setFiltroProdBrutaMinApplied] = useState('')
-  const [filtroProdBrutaMaxApplied, setFiltroProdBrutaMaxApplied] = useState('')
-  const [filtroProdFinalMinApplied, setFiltroProdFinalMinApplied] = useState('')
-  const [filtroProdFinalMaxApplied, setFiltroProdFinalMaxApplied] = useState('')
-  const [filtroMetaMinApplied, setFiltroMetaMinApplied] = useState('')
-  const [filtroMetaMaxApplied, setFiltroMetaMaxApplied] = useState('')
-
-  const [colaboradores, setColaboradores] = useState<{ id: string; nome: string }[]>([])
-  const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
+  const [colaboradores, setColaboradores] = useState<{ id: string; nome: string; matricula: string; id_filial: string | null; funcao: string | null; filiais?: { codigo: string; nome: string } }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string; codigo: string }[]>([])
   const [usuarioLogado, setUsuarioLogado] = useState<{ tipo: string; id_filial: string | null } | null>(null)
+  const [modalFechamentoAberto, setModalFechamentoAberto] = useState(false)
+  const [acuracidadeModal, setAcuracidadeModal] = useState('')
+  const [checklistModal, setChecklistModal] = useState('')
+  const [perdaModal, setPerdaModal] = useState('')
 
   const supabase = createClient()
-
-  const meses = [
-    'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-    'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
-  ]
+  const registrosPorPagina = 50
+  const fechamentoPaginado = fechamentosFiltrados.slice((paginaFechamento - 1) * registrosPorPagina, paginaFechamento * registrosPorPagina)
+  const resultadoPaginado = resultadosFiltrados.slice((paginaResultado - 1) * registrosPorPagina, paginaResultado * registrosPorPagina)
+  const totalPaginasFechamento = Math.ceil(fechamentosFiltrados.length / registrosPorPagina)
+  const totalPaginasResultado = Math.ceil(resultadosFiltrados.length / registrosPorPagina)
 
   useEffect(() => {
-    // Definir mês atual
-    const mesAtual = meses[new Date().getMonth()]
-    setMesSelecionado(mesAtual)
+    setMesSelecionado(MESES[new Date().getMonth()])
   }, [])
 
   useEffect(() => {
-    carregarUsuarioLogado()
-  }, [])
-
-  useEffect(() => {
-    if (mesSelecionado) {
-      carregarRegrasCalculo()
-      carregarFechamentos()
-      carregarColaboradores()
-      carregarFiliais()
-    }
-  }, [mesSelecionado, anoSelecionado])
-
-  const carregarUsuarioLogado = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-
-    if (user) {
-      const { data: usuario } = await supabase
-        .from('usuarios')
-        .select('tipo, id_filial')
-        .eq('id', user.id)
-        .single()
-
-      if (usuario) {
-        setUsuarioLogado(usuario)
-
-        // Se for colaborador, fixar a filial
-        if (usuario.tipo === 'colaborador' && usuario.id_filial) {
-          setFiltroFilial(usuario.id_filial)
-        }
-      }
-    }
-  }
-
-  // Debounce para inputs de texto
-  useEffect(() => {
-    const timer = setTimeout(() => setBuscaDebounced(filtroBusca), 300)
-    return () => clearTimeout(timer)
+    const t = setTimeout(() => setBuscaDebounced(filtroBusca), 300)
+    return () => clearTimeout(t)
   }, [filtroBusca])
 
-  useEffect(() => {
-    const timer = setTimeout(() => setMatriculaDebounced(filtroMatricula), 300)
-    return () => clearTimeout(timer)
-  }, [filtroMatricula])
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setFiltroVlrKgHsMinApplied(filtroVlrKgHsMin)
-      setFiltroVlrKgHsMaxApplied(filtroVlrKgHsMax)
-      setFiltroVlrVolHsMinApplied(filtroVlrVolHsMin)
-      setFiltroVlrVolHsMaxApplied(filtroVlrVolHsMax)
-      setFiltroVlrPltHsMinApplied(filtroVlrPltHsMin)
-      setFiltroVlrPltHsMaxApplied(filtroVlrPltHsMax)
-      setFiltroProdBrutaMinApplied(filtroProdBrutaMin)
-      setFiltroProdBrutaMaxApplied(filtroProdBrutaMax)
-      setFiltroProdFinalMinApplied(filtroProdFinalMin)
-      setFiltroProdFinalMaxApplied(filtroProdFinalMax)
-      setFiltroMetaMinApplied(filtroMetaMin)
-      setFiltroMetaMaxApplied(filtroMetaMax)
-    }, 400)
-    return () => clearTimeout(t)
-  }, [filtroVlrKgHsMin, filtroVlrKgHsMax, filtroVlrVolHsMin, filtroVlrVolHsMax, filtroVlrPltHsMin, filtroVlrPltHsMax, filtroProdBrutaMin, filtroProdBrutaMax, filtroProdFinalMin, filtroProdFinalMax, filtroMetaMin, filtroMetaMax])
-
-  // Aplicar filtros quando mudarem (usa valores aplicados/debounced nos numéricos)
-  const aplicarFiltros = useCallback(() => {
-    let filtrados = filterOutNaoInformado([...fechamentos], (f) => f.colaborador_nome)
-
-    if (filtroColaborador && filtroColaborador !== 'todos') {
-      filtrados = filtrados.filter(f => f.id_colaborador === filtroColaborador)
-    }
-
-    if (filtroFilial && filtroFilial !== 'todas') {
-      filtrados = filtrados.filter(f => f.id_filial === filtroFilial)
-    }
-
-    if (buscaDebounced) {
-      const busca = buscaDebounced.toLowerCase()
-      filtrados = filtrados.filter(f =>
-        f.colaborador_nome?.toLowerCase().includes(busca) ||
-        f.filial_nome?.toLowerCase().includes(busca)
-      )
-    }
-
-    if (filtroVlrKgHsMinApplied !== '') {
-      const min = Number(filtroVlrKgHsMinApplied)
-      filtrados = filtrados.filter(f => f.valor_kg_hs >= min)
-    }
-
-    if (filtroVlrKgHsMaxApplied !== '') {
-      const max = Number(filtroVlrKgHsMaxApplied)
-      filtrados = filtrados.filter(f => f.valor_kg_hs <= max)
-    }
-
-    if (filtroVlrVolHsMinApplied !== '') {
-      const min = Number(filtroVlrVolHsMinApplied)
-      filtrados = filtrados.filter(f => f.valor_vol_hs >= min)
-    }
-
-    if (filtroVlrVolHsMaxApplied !== '') {
-      const max = Number(filtroVlrVolHsMaxApplied)
-      filtrados = filtrados.filter(f => f.valor_vol_hs <= max)
-    }
-
-    if (filtroVlrPltHsMinApplied !== '') {
-      const min = Number(filtroVlrPltHsMinApplied)
-      filtrados = filtrados.filter(f => f.valor_plt_hs >= min)
-    }
-
-    if (filtroVlrPltHsMaxApplied !== '') {
-      const max = Number(filtroVlrPltHsMaxApplied)
-      filtrados = filtrados.filter(f => f.valor_plt_hs <= max)
-    }
-
-    if (filtroProdBrutaMinApplied !== '') {
-      const min = Number(filtroProdBrutaMinApplied)
-      filtrados = filtrados.filter(f => f.produtividade_bruta >= min)
-    }
-
-    if (filtroProdBrutaMaxApplied !== '') {
-      const max = Number(filtroProdBrutaMaxApplied)
-      filtrados = filtrados.filter(f => f.produtividade_bruta <= max)
-    }
-
-    if (filtroProdFinalMinApplied !== '') {
-      const min = Number(filtroProdFinalMinApplied)
-      filtrados = filtrados.filter(f => f.produtividade_final >= min)
-    }
-
-    if (filtroProdFinalMaxApplied !== '') {
-      const max = Number(filtroProdFinalMaxApplied)
-      filtrados = filtrados.filter(f => f.produtividade_final <= max)
-    }
-
-    if (filtroMetaMinApplied !== '') {
-      const min = Number(filtroMetaMinApplied)
-      filtrados = filtrados.filter(f => f.percentual_atingimento >= min)
-    }
-
-    if (filtroMetaMaxApplied !== '') {
-      const max = Number(filtroMetaMaxApplied)
-      filtrados = filtrados.filter(f => f.percentual_atingimento <= max)
-    }
-
-    if (matriculaDebounced) {
-      const matricula = matriculaDebounced.toLowerCase()
-      filtrados = filtrados.filter(f =>
-        f.colaborador_matricula?.toLowerCase().includes(matricula)
-      )
-    }
-
-    setFechamentosFiltrados(filtrados)
-    setPaginaAtual(1)
-  }, [fechamentos, filtroColaborador, filtroFilial, buscaDebounced, matriculaDebounced, filtroVlrKgHsMinApplied, filtroVlrKgHsMaxApplied, filtroVlrVolHsMinApplied, filtroVlrVolHsMaxApplied, filtroVlrPltHsMinApplied, filtroVlrPltHsMaxApplied, filtroProdBrutaMinApplied, filtroProdBrutaMaxApplied, filtroProdFinalMinApplied, filtroProdFinalMaxApplied, filtroMetaMinApplied, filtroMetaMaxApplied])
-
-  useEffect(() => {
-    aplicarFiltros()
-  }, [aplicarFiltros])
-
-  const carregarRegrasCalculo = async () => {
-    try {
-      const { data } = await supabase
-        .from('configuracoes')
-        .select('chave, valor')
-        .in('chave', [
-          'regras_kg_hora',
-          'regras_vol_hora',
-          'regras_plt_hora',
-          'percentuais_metricas',
-          'regras_descontos',
-        ])
-
-      if (data) {
-        const raw: Record<string, unknown> = {}
-        data.forEach(config => {
-          raw[config.chave] = config.valor
-        })
-        const normalizarFaixasKg = (arr: unknown[]): { kg_hora: number; valor: number }[] =>
-          (arr || []).map((r: unknown) => ({
-            kg_hora: Number((r as { kg_hora?: number })?.kg_hora ?? 0),
-            valor: Number((r as { valor?: number })?.valor ?? 0),
-          }))
-        const normalizarFaixasVol = (arr: unknown[]): { vol_hora: number; valor: number }[] =>
-          (arr || []).map((r: unknown) => ({
-            vol_hora: Number((r as { vol_hora?: number })?.vol_hora ?? 0),
-            valor: Number((r as { valor?: number })?.valor ?? 0),
-          }))
-        const normalizarFaixasPlt = (arr: unknown[]): { plt_hora: number; valor: number }[] =>
-          (arr || []).map((r: unknown) => ({
-            plt_hora: Number((r as { plt_hora?: number })?.plt_hora ?? 0),
-            valor: Number((r as { valor?: number })?.valor ?? 0),
-          }))
-        const pm = (raw.percentuais_metricas as { kg_hora?: number; vol_hora?: number; plt_hora?: number }) ?? {}
-        const toPct = (v: unknown): number => {
-          const n = Number(v ?? 0)
-          return n >= 1 ? n / 100 : n
-        }
-        const regras: RegrasCalculo = {
-          regras_kg_hora: Array.isArray(raw.regras_kg_hora) ? normalizarFaixasKg(raw.regras_kg_hora) : [],
-          regras_vol_hora: Array.isArray(raw.regras_vol_hora) ? normalizarFaixasVol(raw.regras_vol_hora) : [],
-          regras_plt_hora: Array.isArray(raw.regras_plt_hora) ? normalizarFaixasPlt(raw.regras_plt_hora) : [],
-          percentuais_metricas: {
-            kg_hora: toPct(pm.kg_hora),
-            vol_hora: toPct(pm.vol_hora),
-            plt_hora: toPct(pm.plt_hora),
-          },
-        }
-        setRegrasCalculo(regras)
+  const carregarUsuarioLogado = useCallback(async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const { data: u } = await supabase.from('usuarios').select('tipo, id_filial').eq('id', user.id).single()
+      if (u) {
+        setUsuarioLogado(u)
+        if (u.tipo === 'colaborador' && u.id_filial) setFiltroFilial(u.id_filial)
       }
-      const rd = data?.find((c) => c.chave === 'regras_descontos')?.valor as { erro_separacao_percent?: number; erro_entregas_percent?: number } | undefined
-      if (rd) {
-        setRegrasDescontosErros({
-          erro_separacao_percent: rd.erro_separacao_percent ?? 0.01,
-          erro_entregas_percent: rd.erro_entregas_percent ?? 0.01,
-        })
-      }
-    } catch (error) {
-      console.error('Erro ao carregar regras:', error)
     }
-  }
+  }, [supabase])
 
-  const carregarFechamentos = async () => {
+  const carregarFechamentos = useCallback(async () => {
+    if (!mesSelecionado) return
     setLoading(true)
     try {
       const { data } = await supabase
         .from('fechamento')
         .select(`
           *,
-          colaboradores (nome, matricula),
-          filiais (nome)
+          colaboradores (nome, matricula, funcao, filiais (codigo, nome))
         `)
         .eq('mes', mesSelecionado)
         .eq('ano', anoSelecionado)
-        .order('produtividade_final', { ascending: false })
-
-      if (data) {
-        const fechamentosFormatados = data.map(f => ({
-          ...f,
-          colaborador_nome: f.colaboradores?.nome,
-          colaborador_matricula: f.colaboradores?.matricula,
-          filial_nome: f.filiais?.nome,
-          valor_kg_hs: Number(f.valor_kg_hs) || 0,
-          valor_vol_hs: Number(f.valor_vol_hs) || 0,
-          valor_plt_hs: Number(f.valor_plt_hs) || 0,
-          produtividade_bruta: Number(f.produtividade_bruta) || 0,
-          produtividade_final: Number(f.produtividade_final) ?? 0,
-        }))
-        setFechamentos(fechamentosFormatados)
-      }
-    } catch (error) {
-      console.error('Erro ao carregar fechamentos:', error)
+        .order('created_at', { ascending: false })
+      const rows: FechamentoRow[] = (data ?? []).map((f: Record<string, unknown>) => ({
+        ...f,
+        colaborador_nome: (f.colaboradores as { nome?: string })?.nome,
+        colaborador_matricula: (f.colaboradores as { matricula?: string })?.matricula,
+        colaborador_funcao: (f.colaboradores as { funcao?: string })?.funcao,
+        filial_nome: (f.colaboradores as { filiais?: { nome: string } })?.filiais?.nome ?? (f.colaboradores as { filiais?: { nome: string }[] })?.filiais?.[0]?.nome,
+        filial_codigo: (f.colaboradores as { filiais?: { codigo: string } })?.filiais?.codigo ?? (f.colaboradores as { filiais?: { codigo: string }[] })?.filiais?.[0]?.codigo,
+      })) as FechamentoRow[]
+      setFechamentos(rows)
+    } catch (e) {
+      console.error('Erro ao carregar fechamentos:', e)
+      setFechamentos([])
     } finally {
       setLoading(false)
     }
-  }
+  }, [supabase, mesSelecionado, anoSelecionado])
 
-  const carregarColaboradores = async () => {
-    const { data } = await supabase
-      .from('colaboradores')
-      .select('*')
-      .eq('ativo', true)
-      .order('nome')
-
-    if (data) setColaboradores(data)
-  }
-
-  const carregarFiliais = async () => {
-    const { data } = await supabase
-      .from('filiais')
-      .select('*')
-      .eq('ativo', true)
-
-    if (data) setFiliais(data)
-  }
-
-  const limparFiltros = () => {
-    setFiltroColaborador('todos')
-    setFiltroFilial('todas')
-    setFiltroBusca('')
-    setFiltroVlrKgHsMin('')
-    setFiltroVlrKgHsMax('')
-    setFiltroVlrVolHsMin('')
-    setFiltroVlrVolHsMax('')
-    setFiltroVlrPltHsMin('')
-    setFiltroVlrPltHsMax('')
-    setFiltroProdBrutaMin('')
-    setFiltroProdBrutaMax('')
-    setFiltroProdFinalMin('')
-    setFiltroProdFinalMax('')
-    setFiltroMetaMin('')
-    setFiltroMetaMax('')
-    setFiltroMatricula('')
-    setFiltroVlrKgHsMinApplied('')
-    setFiltroVlrKgHsMaxApplied('')
-    setFiltroVlrVolHsMinApplied('')
-    setFiltroVlrVolHsMaxApplied('')
-    setFiltroVlrPltHsMinApplied('')
-    setFiltroVlrPltHsMaxApplied('')
-    setFiltroProdBrutaMinApplied('')
-    setFiltroProdBrutaMaxApplied('')
-    setFiltroProdFinalMinApplied('')
-    setFiltroProdFinalMaxApplied('')
-    setFiltroMetaMinApplied('')
-    setFiltroMetaMaxApplied('')
-  }
-
-  const contarFiltrosAtivos = () => {
-    let count = 0
-    if (filtroColaborador !== 'todos') count++
-    if (filtroFilial !== 'todas') count++
-    if (filtroBusca) count++
-    if (filtroVlrKgHsMin) count++
-    if (filtroVlrKgHsMax) count++
-    if (filtroVlrVolHsMin) count++
-    if (filtroVlrVolHsMax) count++
-    if (filtroVlrPltHsMin) count++
-    if (filtroVlrPltHsMax) count++
-    if (filtroProdBrutaMin) count++
-    if (filtroProdBrutaMax) count++
-    if (filtroProdFinalMin) count++
-    if (filtroProdFinalMax) count++
-    if (filtroMetaMin) count++
-    if (filtroMetaMax) count++
-    if (filtroMatricula) count++
-    return count
-  }
-
-  const calcularFechamento = async () => {
-    if (!regrasCalculo) {
-      toast.error('Regras de cálculo não carregadas. Tente recarregar a página.')
-      return
-    }
-    const faixasOk =
-      Array.isArray(regrasCalculo.regras_kg_hora) && regrasCalculo.regras_kg_hora.length > 0 &&
-      Array.isArray(regrasCalculo.regras_vol_hora) && regrasCalculo.regras_vol_hora.length > 0 &&
-      Array.isArray(regrasCalculo.regras_plt_hora) && regrasCalculo.regras_plt_hora.length > 0
-    if (!faixasOk) {
-      toast.error('Configure as faixas de pagamento em Configurações antes de calcular o fechamento.')
-      return
-    }
-
-    if (!confirm(`Calcular fechamento para ${mesSelecionado}/${anoSelecionado}? Isso irá recalcular todos os dados.`)) {
-      return
-    }
-
-    setCalculando(true)
-
+  const carregarResultados = useCallback(async () => {
+    if (!mesSelecionado) return
     try {
-      // 1. Buscar todos os colaboradores ativos
-      const { data: colaboradores } = await supabase
-        .from('colaboradores')
-        .select('*')
-        .eq('ativo', true)
+      const { data } = await supabase
+        .from('resultados')
+        .select(`
+          *,
+          colaboradores (nome, matricula)
+        `)
+        .eq('mes', mesSelecionado)
+        .order('bonus_final', { ascending: false })
+      const rows: ResultadoRow[] = (data ?? []).map((r: Record<string, unknown>) => ({
+        ...r,
+        colaborador_nome: (r.colaboradores as { nome?: string })?.nome,
+        colaborador_matricula: (r.colaboradores as { matricula?: string })?.matricula,
+      })) as ResultadoRow[]
+      setResultados(rows)
+    } catch (e) {
+      console.error('Erro ao carregar resultados:', e)
+      setResultados([])
+    }
+  }, [supabase, mesSelecionado, anoSelecionado])
 
-      if (!colaboradores) return
+  type ColaboradorComFilial = { id: string; nome: string; matricula: string; id_filial: string | null; funcao: string | null; filiais?: { codigo: string; nome: string } }
+  const carregarColaboradores = useCallback(async () => {
+    const { data } = await supabase.from('colaboradores').select('id, nome, matricula, id_filial, funcao, filiais(codigo, nome)').eq('ativo', true).order('nome')
+    const raw = (data ?? []) as Array<{ id: string; nome: string; matricula: string; id_filial: string | null; funcao: string | null; filiais?: { codigo: string; nome: string } | { codigo: string; nome: string }[] }>
+    const normalized: ColaboradorComFilial[] = raw.map((c) => ({
+      ...c,
+      filiais: Array.isArray(c.filiais) ? c.filiais[0] : c.filiais,
+    }))
+    setColaboradores(normalized)
+  }, [supabase])
 
+  const carregarFiliais = useCallback(async () => {
+    const { data } = await supabase.from('filiais').select('id, nome, codigo').eq('ativo', true)
+    setFiliais((data ?? []) as { id: string; nome: string; codigo: string }[])
+  }, [supabase])
+
+  useEffect(() => {
+    carregarUsuarioLogado()
+  }, [carregarUsuarioLogado])
+
+  useEffect(() => {
+    if (mesSelecionado) {
+      carregarFechamentos()
+      carregarResultados()
+      carregarColaboradores()
+      carregarFiliais()
+    }
+  }, [mesSelecionado, anoSelecionado, carregarFechamentos, carregarResultados, carregarColaboradores, carregarFiliais])
+
+  const aplicarFiltros = useCallback(() => {
+    let fFech = [...fechamentos]
+    let fRes = [...resultados]
+    if (filtroFilial !== 'todas') {
+      fFech = fFech.filter((f) => f.id_filial === filtroFilial)
+      fRes = fRes.filter((r) => r.id_filial === filtroFilial)
+    }
+    if (filtroColaborador !== 'todos') {
+      fFech = fFech.filter((f) => f.id_colaborador === filtroColaborador)
+      fRes = fRes.filter((r) => r.id_colaborador === filtroColaborador)
+    }
+    if (buscaDebounced) {
+      const b = buscaDebounced.toLowerCase()
+      fFech = fFech.filter((f) => f.colaborador_nome?.toLowerCase().includes(b) || f.filial_nome?.toLowerCase().includes(b))
+      fRes = fRes.filter((r) => r.colaborador_nome?.toLowerCase().includes(b) || r.filial?.toLowerCase().includes(b))
+    }
+    setFechamentosFiltrados(fFech)
+    setResultadosFiltrados(fRes)
+    setPaginaFechamento(1)
+    setPaginaResultado(1)
+  }, [fechamentos, resultados, filtroFilial, filtroColaborador, buscaDebounced])
+
+  useEffect(() => {
+    aplicarFiltros()
+  }, [aplicarFiltros])
+
+  const calcularFechamento = async (
+    acuracidadeModalVal?: number | null,
+    checklistModalVal?: number | null,
+    perdaModalVal?: number | null
+  ) => {
+    if (!mesSelecionado) return
+    setCalculando(true)
+    try {
+      // ── 1. Buscar dados brutos ──────────────────────────────────────────
       const { dataInicio, dataFim } = getDatasPorMesAno(mesSelecionado, anoSelecionado)
       const dataInicioISO = toISODate(dataInicio)
       const dataFimISO = toISODate(dataFim)
 
-      let fechamentosGravados = 0
+      const recebimentos = await fetchAllRows(() =>
+        supabase.from('recebimentos').select('*').gte('dta_receb', dataInicioISO).lte('dta_receb', dataFimISO)
+      )
+      const tempoList = await fetchAllRows(() => supabase.from('tempo').select('*'))
+      const { data: colaboradoresList } = await supabase.from('colaboradores').select('*, filiais(codigo, nome)').eq('ativo', true)
+      const { data: filiaisList } = await supabase.from('filiais').select('id, codigo, nome')
 
-      // 2. Para cada colaborador, calcular seu fechamento
-      for (const colaborador of colaboradores) {
-        // Buscar dados de produtividade do mês/ano por data_carga (mes na tabela está NULL)
-        const { data: dadosProducao } = await supabase
-          .from('dados_produtividade')
-          .select('*')
-          .eq('id_colaborador', colaborador.id)
-          .gte('data_carga', dataInicioISO)
-          .lte('data_carga', dataFimISO)
+      // ── 2. Mapear tempo por id_coleta_recebimento ───────────────────────
+      const tempoPorIdColeta = new Map<string, { tempo_recebimento: string | null }>()
+      tempoList.forEach((t: { id_coleta_recebimento: string | null; tempo_recebimento: string | null }) => {
+        if (t.id_coleta_recebimento) tempoPorIdColeta.set(t.id_coleta_recebimento, { tempo_recebimento: t.tempo_recebimento })
+      })
 
-        if (!dadosProducao || dadosProducao.length === 0) continue
-
-        // Totalizar dados (agregar por id_carga_cliente para evitar duplicação: tempo e erros são por carga, não por linha)
-        const pesoLiquidoTotal = dadosProducao.reduce((sum, d) => sum + (d.peso_liquido || 0), 0)
-        const volumeTotal = dadosProducao.reduce((sum, d) => sum + (d.qtd_venda || 0), 0)
-        const paletesTotal = dadosProducao.reduce((sum, d) => sum + (d.paletes || 0), 0)
-        const tempoPorCarga = new Map<string, number>()
-        const errosPorCarga = new Map<string, { sep: number; ent: number }>()
-        for (const d of dadosProducao) {
-          const key = String(d.id_carga_cliente ?? '')
-          const t = Number(d.tempo ?? 0)
-          const curTempo = tempoPorCarga.get(key) ?? 0
-          if (t > curTempo) tempoPorCarga.set(key, t)
-          const cur = errosPorCarga.get(key) ?? { sep: 0, ent: 0 }
-          errosPorCarga.set(key, {
-            sep: Math.max(cur.sep, Number(d.erro_separacao ?? 0)),
-            ent: Math.max(cur.ent, Number(d.erro_entregas ?? 0))
-          })
+      // ── 3. Agrupar recebimentos por coleta (mesma lógica da Produtividade) ──
+      type RecebColeta = { id_filial: string | null; qtd_caixas: number[]; peso: number; volume: number }
+      const recebPorColeta = new Map<string, RecebColeta>()
+      recebimentos.forEach((r: { id: string; id_filial: string | null; filial: string | null; id_coleta_recebimento: string | null; usuario_recebto: string | null; qtd_caixas_recebidas: number | null; peso_liquido_recebido: number | null }) => {
+        const key = r.id_coleta_recebimento || r.id
+        if (!recebPorColeta.has(key)) {
+          recebPorColeta.set(key, { id_filial: r.id_filial, qtd_caixas: [], peso: 0, volume: 0 })
         }
-        const tempoTotal = [...tempoPorCarga.values()].reduce((s, t) => s + t, 0)
-        const erroSeparacaoTotal = [...errosPorCarga.values()].reduce((s, c) => s + c.sep, 0)
-        const erroEntregasTotal = [...errosPorCarga.values()].reduce((s, c) => s + c.ent, 0)
+        const g = recebPorColeta.get(key)!
+        g.qtd_caixas.push(Number(r.qtd_caixas_recebidas ?? 0))
+        g.peso += Number(r.peso_liquido_recebido ?? 0)
+        g.volume += Number(r.qtd_caixas_recebidas ?? 0)
+      })
 
-        // Calcular métricas de produtividade
-        const kgHs = tempoTotal > 0 ? pesoLiquidoTotal / tempoTotal : 0
-        const volHs = tempoTotal > 0 ? volumeTotal / tempoTotal : 0
-        const pltHs = tempoTotal > 0 ? paletesTotal / tempoTotal : 0
+      // ── 4. Agregar totais por FILIAL ────────────────────────────────────
+      console.log('Recebimentos encontrados:', recebimentos.length)
+      const gruposPorFilial = new Map<string, { peso: number; volume: number; paletes: number; tempoHoras: number }>()
+      recebPorColeta.forEach((g, idColeta) => {
+        const tempo = tempoPorIdColeta.get(idColeta)
+        const th = tempo?.tempo_recebimento != null ? intervalToHours(tempo.tempo_recebimento) : 0
+        const paletes = contarPaletes(g.qtd_caixas)
+        const idFilial = g.id_filial ?? ''
+        if (!idFilial) return
+        if (!gruposPorFilial.has(idFilial)) gruposPorFilial.set(idFilial, { peso: 0, volume: 0, paletes: 0, tempoHoras: 0 })
+        const gr = gruposPorFilial.get(idFilial)!
+        gr.peso += g.peso
+        gr.volume += g.volume
+        gr.paletes += paletes
+        gr.tempoHoras += th ?? 0
+      })
+      console.log('Grupos por filial:', gruposPorFilial.size)
 
-        // Calcular produtividade bruta
-        const {
-          valor_kg_hs,
-          valor_vol_hs,
-          valor_plt_hs,
-          produtividade_bruta
-        } = calcularProdutividadeBruta(kgHs, volHs, pltHs, regrasCalculo)
+      // ── 5. Upsert na tabela totalizadores (1 registro por filial) ──────
+      for (const [idFilial, gr] of gruposPorFilial.entries()) {
+        const kgHs = gr.tempoHoras > 0 ? gr.peso / gr.tempoHoras : null
+        const volHs = gr.tempoHoras > 0 ? gr.volume / gr.tempoHoras : null
+        const pltHs = gr.tempoHoras > 0 ? gr.paletes / gr.tempoHoras : null
 
-        // Calcular percentual de erros (usa regras_descontos se carregado)
-        const percentualErros = calcularPercentualErros(
-          erroSeparacaoTotal,
-          erroEntregasTotal,
-          regrasDescontosErros?.erro_separacao_percent ?? 0.01,
-          regrasDescontosErros?.erro_entregas_percent ?? 0.01
-        )
-
-        // Buscar descontos do colaborador
-        const { data: desconto } = await supabase
-          .from('descontos')
-          .select('*')
-          .eq('id_colaborador', colaborador.id)
+        const { data: totExistente } = await supabase
+          .from('totalizadores')
+          .select('id')
+          .eq('id_filial', idFilial)
           .eq('mes', mesSelecionado)
           .eq('ano', anoSelecionado)
           .single()
 
-        const percentualDescontos = desconto?.percentual_total || 0
-
-        // Calcular produtividade final
-        const {
-          valor_desconto_erros,
-          valor_desconto_outros,
-          produtividade_final
-        } = calcularProdutividadeFinal(produtividade_bruta, percentualErros, percentualDescontos)
-
-        // Calcular atingimento
-        const meta = 300
-        const percentualAtingimento = calcularPercentualAtingimento(produtividade_final, meta)
-
-        // Salvar ou atualizar fechamento
-        const dadosFechamento = {
-          id_colaborador: colaborador.id,
-          id_filial: colaborador.id_filial,
-          id_desconto: desconto?.id || null,
+        const totPayload = {
+          id_filial: idFilial,
           mes: mesSelecionado,
           ano: anoSelecionado,
-          peso_liquido_total: pesoLiquidoTotal,
-          volume_total: volumeTotal,
-          paletes_total: paletesTotal,
-          tempo_total: tempoTotal,
+          peso_liquido_total: gr.peso,
+          qtd_caixas_total: gr.volume,
+          paletes_total: gr.paletes,
+          tempo_total: gr.tempoHoras,
           kg_hs: kgHs,
           vol_hs: volHs,
           plt_hs: pltHs,
-          erro_separacao_total: erroSeparacaoTotal,
-          erro_entregas_total: erroEntregasTotal,
-          percentual_erros: percentualErros * 100,
-          valor_kg_hs,
-          valor_vol_hs,
-          valor_plt_hs,
-          produtividade_bruta,
-          percentual_descontos: percentualDescontos,
-          valor_descontos: valor_desconto_outros,
-          produtividade_final,
-          meta,
-          percentual_atingimento: percentualAtingimento
+          updated_at: new Date().toISOString(),
         }
+        if (totExistente) {
+          await supabase.from('totalizadores').update(totPayload).eq('id', totExistente.id)
+        } else {
+          await supabase.from('totalizadores').insert(totPayload)
+        }
+      }
 
-        // Verificar se já existe fechamento
-        const { data: fechamentoExistente } = await supabase
+      // ── 6. Ler totalizadores de volta (fonte de verdade) ────────────────
+      const { data: totalizadoresList } = await supabase
+        .from('totalizadores')
+        .select('*')
+        .eq('mes', mesSelecionado)
+        .eq('ano', anoSelecionado)
+
+      const totPorFilial = new Map<string, { peso: number; volume: number; paletes: number; tempoHoras: number; kgHs: number | null; volHs: number | null; pltHs: number | null }>()
+
+      // Popular com o que está em memória primeiro (fallback)
+      gruposPorFilial.forEach((gr, idFilial) => {
+        const kgHs = gr.tempoHoras > 0 ? gr.peso / gr.tempoHoras : null
+        const volHs = gr.tempoHoras > 0 ? gr.volume / gr.tempoHoras : null
+        const pltHs = gr.tempoHoras > 0 ? gr.paletes / gr.tempoHoras : null
+        totPorFilial.set(idFilial, {
+          peso: gr.peso, volume: gr.volume, paletes: gr.paletes, tempoHoras: gr.tempoHoras,
+          kgHs, volHs, pltHs
+        })
+      })
+
+        // Sobrescrever com o que veio do banco (se houver)
+        ; (totalizadoresList ?? []).forEach((t: { id_filial: string; peso_liquido_total: number; qtd_caixas_total: number; paletes_total: number; tempo_total: number; kg_hs: number | null; vol_hs: number | null; plt_hs: number | null }) => {
+          totPorFilial.set(t.id_filial, {
+            peso: Number(t.peso_liquido_total ?? 0),
+            volume: Number(t.qtd_caixas_total ?? 0),
+            paletes: Number(t.paletes_total ?? 0),
+            tempoHoras: Number(t.tempo_total ?? 0),
+            kgHs: t.kg_hs != null ? Number(t.kg_hs) : null,
+            volHs: t.vol_hs != null ? Number(t.vol_hs) : null,
+            pltHs: t.plt_hs != null ? Number(t.plt_hs) : null,
+          })
+        })
+      console.log('Totais mapeados:', totPorFilial.size)
+
+      // ── 7. Criar/atualizar fechamento por colaborador ───────────────────
+      const fromModal =
+        acuracidadeModalVal !== undefined &&
+        checklistModalVal !== undefined &&
+        perdaModalVal !== undefined
+
+      for (const col of colaboradoresList ?? []) {
+        const idFilial = col.id_filial ?? ''
+        const tot = totPorFilial.get(idFilial)
+
+        const { data: existente } = await supabase
           .from('fechamento')
           .select('id')
-          .eq('id_colaborador', colaborador.id)
+          .eq('id_colaborador', col.id)
           .eq('mes', mesSelecionado)
           .eq('ano', anoSelecionado)
           .single()
 
-        if (fechamentoExistente) {
-          const { error: updateError } = await supabase
-            .from('fechamento')
-            .update(dadosFechamento)
-            .eq('id', fechamentoExistente.id)
-          if (updateError) {
-            console.error('Erro ao atualizar fechamento:', updateError)
-            toast.error(`Erro ao atualizar fechamento: ${updateError.message}`)
-            return
-          }
-        } else {
-          const { error: insertError } = await supabase
-            .from('fechamento')
-            .insert(dadosFechamento)
-          if (insertError) {
-            console.error('Erro ao inserir fechamento:', insertError)
-            toast.error(`Erro ao inserir fechamento: ${insertError.message}`)
-            return
-          }
+        const payloadTotais = {
+          id_colaborador: col.id,
+          id_filial: idFilial || null,
+          mes: mesSelecionado,
+          ano: anoSelecionado,
+          peso_liquido_total: tot?.peso ?? 0,
+          volume_total: tot?.volume ?? 0,
+          paletes_total: tot?.paletes ?? 0,
+          tempo_total: tot?.tempoHoras ?? 0,
+          kg_hs: tot?.kgHs ?? null,
+          vol_hs: tot?.volHs ?? null,
+          plt_hs: tot?.pltHs ?? null,
+          ...(fromModal
+            ? {
+              acuracidade: acuracidadeModalVal ?? null,
+              checklist: checklistModalVal ?? null,
+              perda: perdaModalVal ?? null,
+            }
+            : {}),
         }
-        fechamentosGravados += 1
+        if (existente) {
+          await supabase.from('fechamento').update(payloadTotais).eq('id', existente.id)
+        } else {
+          await supabase.from('fechamento').insert({
+            ...payloadTotais,
+            acuracidade: fromModal ? (acuracidadeModalVal ?? null) : null,
+            checklist: fromModal ? (checklistModalVal ?? null) : null,
+            perda: fromModal ? (perdaModalVal ?? null) : null,
+          })
+        }
       }
 
-      if (fechamentosGravados > 0) {
-        registrarLog(supabase, 'Calculou fechamento mensal')
+      // ── 8. Descontos ────────────────────────────────────────────────────
+      const { data: descontosList } = await supabase
+        .from('descontos')
+        .select('*')
+        .not('mes_desconto', 'is', null)
+      const descontosPorColaborador = new Map<string, { percentual_total: number }>()
+        ; (descontosList ?? []).forEach((d: { id_colaborador: string; mes_desconto: string; percentual_total: number | null }) => {
+          const mesStr = d.mes_desconto ? String(d.mes_desconto).slice(0, 7) : ''
+          const anoMes = `${anoSelecionado}-${String(MESES.indexOf(mesSelecionado) + 1).padStart(2, '0')}`
+          if (mesStr === anoMes || (d.mes_desconto && String(d.mes_desconto).startsWith(anoMes))) {
+            descontosPorColaborador.set(d.id_colaborador, { percentual_total: Number(d.percentual_total ?? 0) })
+          }
+        })
+
+      // ── 9. Calcular resultados ──────────────────────────────────────────
+      await carregarFechamentos()
+      const fechamentosAtualizados = await supabase.from('fechamento').select('*, colaboradores(nome, matricula, funcao, filiais(codigo, nome))').eq('mes', mesSelecionado).eq('ano', anoSelecionado)
+      const fechList = fechamentosAtualizados.data ?? []
+
+      const filialCodigo = new Map<string, string>()
+        ; (filiaisList ?? []).forEach((f: { id: string; codigo: string }) => { filialCodigo.set(f.id, f.codigo) })
+
+      for (const f of fechList) {
+        const col = f.colaboradores as { nome?: string; matricula?: string; funcao?: string; filiais?: { codigo: string; nome: string } }
+        const setor = (col?.funcao ?? '').toLowerCase().includes('estoque') ? 'estoque' : 'recebimento'
+        const codigo = (col?.filiais as { codigo?: string })?.codigo ?? (Array.isArray(col?.filiais) ? (col.filiais as { codigo?: string }[])[0]?.codigo : '')
+        const pltHsFilial = Number(f.plt_hs ?? 0)
+        const acuracidade = Number(f.acuracidade ?? 0)
+        const checklist = Number(f.checklist ?? 0)
+        const perda = Number(f.perda ?? 0)
+        const valorAcu = calcularValorAcuracidade(acuracidade)
+        const valorChk = calcularValorChecklist(checklist)
+        const valorPlt = calcularValorPltHsPorFilial(pltHsFilial, codigo ?? '', setor)
+        const valorPerd = setor === 'estoque' ? calcularValorPerda(perda) : 0
+        const bonusBruto = calcularBonusBrutoDockProd(valorAcu, valorChk, valorPlt, valorPerd, setor)
+        const desconto = descontosPorColaborador.get(f.id_colaborador)
+        const pctDesconto = Number(desconto?.percentual_total ?? 0)
+        const valorDesconto = bonusBruto * (pctDesconto / 100)
+        const bonusFinal = Math.max(0, bonusBruto - valorDesconto)
+
+        const resPayload = {
+          id_colaborador: f.id_colaborador,
+          id_filial: f.id_filial,
+          filial: (col?.filiais as { nome?: string })?.nome ?? (Array.isArray(col?.filiais) ? (col.filiais as { nome?: string }[])[0]?.nome : ''),
+          mes: mesSelecionado,
+          funcao: col?.funcao ?? null,
+          acuracidade,
+          checklist,
+          plt_hs: pltHsFilial,
+          perda,
+          bonus: bonusBruto,
+          falta_inj: 0,
+          advert: 0,
+          suspensao_ferias: 0,
+          atestado: 0,
+          desconto: valorDesconto,
+          filtro: valorDesconto,
+          bonus_final: bonusFinal,
+        }
+        const { data: resExistente } = await supabase.from('resultados').select('id').eq('id_colaborador', f.id_colaborador).eq('mes', mesSelecionado).single()
+        if (resExistente) {
+          await supabase.from('resultados').update(resPayload).eq('id', resExistente.id)
+        } else {
+          await supabase.from('resultados').insert(resPayload)
+        }
       }
-      toast.success(
-        fechamentosGravados > 0
-          ? `Fechamento calculado: ${fechamentosGravados} colaborador(es) processado(s).`
-          : 'Nenhum dado de produtividade no período. Nenhum fechamento gravado.'
-      )
+
+      registrarLog(supabase, 'Calculou fechamento e resultados (DockProd)')
+      toast.success('Fechamento e resultados calculados.')
       carregarFechamentos()
-    } catch (error) {
-      console.error('Erro ao calcular fechamento:', error)
-      toast.error('Erro ao calcular fechamento')
+      carregarResultados()
+    } catch (e) {
+      console.error('Erro ao calcular fechamento:', e)
+      toast.error('Erro ao calcular. Tente novamente.')
     } finally {
       setCalculando(false)
     }
   }
 
-  const formatarMoeda = (valor: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(valor)
-  }
+  const formatarMoeda = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+  const formatarNum = (v: number, dec = 2) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(v)
 
-  const formatarNumero = (valor: number, decimais: number = 2) => {
-    return new Intl.NumberFormat('pt-BR', {
-      minimumFractionDigits: decimais,
-      maximumFractionDigits: decimais
-    }).format(valor)
+  const limparFiltros = () => {
+    setFiltroFilial(usuarioLogado?.tipo === 'colaborador' ? usuarioLogado.id_filial ?? 'todas' : 'todas')
+    setFiltroColaborador('todos')
+    setFiltroBusca('')
+    setPaginaFechamento(1)
+    setPaginaResultado(1)
+  }
+  const contarFiltrosAtivos = () => {
+    let c = 0
+    if (filtroFilial !== 'todas') c++
+    if (filtroColaborador !== 'todos') c++
+    if (filtroBusca) c++
+    return c
   }
 
   return (
@@ -634,390 +498,285 @@ export default function ResultadoPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Resultado e Fechamento</h1>
-          <p className="text-muted-foreground">
-            Visualize os resultados e calcule o fechamento mensal
-          </p>
+          <p className="text-muted-foreground">Visualize e calcule o fechamento mensal (DockProd – por filial, plt/hs)</p>
         </div>
         <Button
-          onClick={calcularFechamento}
+          onClick={() => setModalFechamentoAberto(true)}
           disabled={calculando}
           className="bg-green-600 hover:bg-green-700"
         >
-          {calculando ? (
-            <>
-              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-              Calculando...
-            </>
-          ) : (
-            <>
-              <Calculator className="w-4 h-4 mr-2" />
-              Calcular Fechamento
-            </>
-          )}
+          {calculando ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Calculator className="w-4 h-4 mr-2" />}
+          {calculando ? 'Calculando...' : 'Calcular Fechamento'}
         </Button>
       </div>
 
-      {/* Filtros */}
-      <FilterToggle
-        filtrosAtivos={contarFiltrosAtivos()}
-        onLimparFiltros={limparFiltros}
-      >
-        <div className="space-y-4">
-          {/* Linha 1 - Período */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <Dialog open={modalFechamentoAberto} onOpenChange={setModalFechamentoAberto}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Acuracidade, Checklist e Perda</DialogTitle>
+            <DialogDescription>
+              Preencha os valores que serão aplicados a todos os colaboradores no fechamento de {mesSelecionado}/{anoSelecionado}. Em seguida o sistema calculará o fechamento e o resultado da produtividade.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
             <div className="space-y-2">
-              <Label>Mês</Label>
-              <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o mês" />
-                </SelectTrigger>
-                <SelectContent>
-                  {meses.map(m => (
-                    <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Ano</Label>
-              <Select value={String(anoSelecionado)} onValueChange={(v) => setAnoSelecionado(Number(v))}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="2024">2024</SelectItem>
-                  <SelectItem value="2025">2025</SelectItem>
-                  <SelectItem value="2026">2026</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Linha 2 - Colaborador/Filial/Busca */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <Label>Colaborador</Label>
-              <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos</SelectItem>
-                  {colaboradores.map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Filial</Label>
-              <Select
-                value={filtroFilial}
-                onValueChange={setFiltroFilial}
-                disabled={usuarioLogado?.tipo === 'colaborador'}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && (
-                    <SelectItem value="todas">Todas</SelectItem>
-                  )}
-                  {filiais.map(f => (
-                    <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {usuarioLogado?.tipo === 'colaborador' && (
-                <p className="text-xs text-muted-foreground">
-                  Fixado para sua filial
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>Busca</Label>
+              <Label htmlFor="modal-acuracidade">Acuracidade (%)</Label>
               <Input
-                placeholder="Buscar colaborador, filial..."
-                value={filtroBusca}
-                onChange={(e) => setFiltroBusca(e.target.value)}
+                id="modal-acuracidade"
+                type="number"
+                step={0.01}
+                min={0}
+                max={100}
+                placeholder="Ex.: 95"
+                value={acuracidadeModal}
+                onChange={(e) => setAcuracidadeModal(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <Label>Matrícula</Label>
+              <Label htmlFor="modal-checklist">Checklist (%)</Label>
               <Input
-                placeholder="Filtrar por matrícula..."
-                value={filtroMatricula}
-                onChange={(e) => setFiltroMatricula(e.target.value)}
+                id="modal-checklist"
+                type="number"
+                step={0.01}
+                min={0}
+                max={100}
+                placeholder="Ex.: 90"
+                value={checklistModal}
+                onChange={(e) => setChecklistModal(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="modal-perda">Perda (%)</Label>
+              <Input
+                id="modal-perda"
+                type="number"
+                step={0.01}
+                min={0}
+                placeholder="Ex.: 1,5"
+                value={perdaModal}
+                onChange={(e) => setPerdaModal(e.target.value)}
               />
             </div>
           </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setModalFechamentoAberto(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              onClick={async () => {
+                const acu = acuracidadeModal.trim() === '' ? null : Number(acuracidadeModal)
+                const chk = checklistModal.trim() === '' ? null : Number(checklistModal)
+                const perd = perdaModal.trim() === '' ? null : Number(perdaModal)
+                if ((acu !== null && (Number.isNaN(acu) || acu < 0 || acu > 100)) ||
+                  (chk !== null && (Number.isNaN(chk) || chk < 0 || chk > 100)) ||
+                  (perd !== null && (Number.isNaN(perd) || perd < 0))) {
+                  toast.error('Valores inválidos. Acuracidade e Checklist entre 0 e 100; Perda >= 0.')
+                  return
+                }
+                setModalFechamentoAberto(false)
+                await calcularFechamento(acu ?? undefined, chk ?? undefined, perd ?? undefined)
+              }}
+            >
+              Salvar e Calcular
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {/* Linha 3 - Valores */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label>Vlr Kg/Hs (R$)</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  placeholder="Min"
-                  value={filtroVlrKgHsMin}
-                  onChange={(e) => setFiltroVlrKgHsMin(e.target.value)}
-                  step="0.01"
-                />
-                <Input
-                  type="number"
-                  placeholder="Max"
-                  value={filtroVlrKgHsMax}
-                  onChange={(e) => setFiltroVlrKgHsMax(e.target.value)}
-                  step="0.01"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Vlr Vol/Hs (R$)</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  placeholder="Min"
-                  value={filtroVlrVolHsMin}
-                  onChange={(e) => setFiltroVlrVolHsMin(e.target.value)}
-                  step="0.01"
-                />
-                <Input
-                  type="number"
-                  placeholder="Max"
-                  value={filtroVlrVolHsMax}
-                  onChange={(e) => setFiltroVlrVolHsMax(e.target.value)}
-                  step="0.01"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Vlr Plt/Hs (R$)</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  placeholder="Min"
-                  value={filtroVlrPltHsMin}
-                  onChange={(e) => setFiltroVlrPltHsMin(e.target.value)}
-                  step="0.01"
-                />
-                <Input
-                  type="number"
-                  placeholder="Max"
-                  value={filtroVlrPltHsMax}
-                  onChange={(e) => setFiltroVlrPltHsMax(e.target.value)}
-                  step="0.01"
-                />
-              </div>
-            </div>
+      <FilterToggle filtrosAtivos={contarFiltrosAtivos()} onLimparFiltros={limparFiltros}>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="space-y-2">
+            <Label>Mês</Label>
+            <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {MESES.map((m) => (
+                  <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-
-          {/* Linha 4 - Produtividade e Meta */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label>Prod. Bruta (R$)</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  placeholder="Min"
-                  value={filtroProdBrutaMin}
-                  onChange={(e) => setFiltroProdBrutaMin(e.target.value)}
-                  step="0.01"
-                />
-                <Input
-                  type="number"
-                  placeholder="Max"
-                  value={filtroProdBrutaMax}
-                  onChange={(e) => setFiltroProdBrutaMax(e.target.value)}
-                  step="0.01"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Prod. Final (R$)</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  placeholder="Min"
-                  value={filtroProdFinalMin}
-                  onChange={(e) => setFiltroProdFinalMin(e.target.value)}
-                  step="0.01"
-                />
-                <Input
-                  type="number"
-                  placeholder="Max"
-                  value={filtroProdFinalMax}
-                  onChange={(e) => setFiltroProdFinalMax(e.target.value)}
-                  step="0.01"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Meta (%)</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  placeholder="Min"
-                  value={filtroMetaMin}
-                  onChange={(e) => setFiltroMetaMin(e.target.value)}
-                  step="1"
-                />
-                <Input
-                  type="number"
-                  placeholder="Max"
-                  value={filtroMetaMax}
-                  onChange={(e) => setFiltroMetaMax(e.target.value)}
-                  step="1"
-                />
-              </div>
-            </div>
+          <div className="space-y-2">
+            <Label>Ano</Label>
+            <Select value={String(anoSelecionado)} onValueChange={(v) => setAnoSelecionado(Number(v))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {[2024, 2025, 2026].map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Filial</Label>
+            <Select value={filtroFilial} onValueChange={setFiltroFilial} disabled={usuarioLogado?.tipo === 'colaborador'}>
+              <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+              <SelectContent>
+                {(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && <SelectItem value="todas">Todas</SelectItem>}
+                {filiais.map((f) => (
+                  <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Colaborador</Label>
+            <Select value={filtroColaborador} onValueChange={setFiltroColaborador}>
+              <SelectTrigger><SelectValue placeholder="Todos" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Todos</SelectItem>
+                {colaboradores.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2 md:col-span-2">
+            <Label>Busca</Label>
+            <Input placeholder="Buscar colaborador, filial..." value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)} />
           </div>
         </div>
       </FilterToggle>
 
-      {/* Tabela Fechamento */}
       <Card>
         <CardHeader>
           <CardTitle>Dados de Fechamento</CardTitle>
-          <CardDescription>
-            Totalizadores por colaborador para {mesSelecionado}/{anoSelecionado}
-          </CardDescription>
+          <CardDescription>Totalizadores por colaborador para {mesSelecionado}/{anoSelecionado}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="border rounded-lg overflow-auto">
+          <div className="border rounded-lg overflow-auto max-h-[400px]">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead>Mes/Ano</TableHead>
                   <TableHead>Colaborador</TableHead>
                   <TableHead>Matrícula</TableHead>
-                  <TableHead className="text-right">Peso Total (kg)</TableHead>
-                  <TableHead className="text-right">Volume Total</TableHead>
-                  <TableHead className="text-right">Paletes Total</TableHead>
+                  <TableHead>Função</TableHead>
+                  <TableHead>Filial</TableHead>
+                  <TableHead className="text-right">Peso Líq.</TableHead>
+                  <TableHead className="text-right">Qtd Caixas</TableHead>
+                  <TableHead className="text-right">Paletes</TableHead>
                   <TableHead className="text-right">Tempo (h)</TableHead>
                   <TableHead className="text-right">Kg/Hs</TableHead>
                   <TableHead className="text-right">Vol/Hs</TableHead>
                   <TableHead className="text-right">Plt/Hs</TableHead>
-                  <TableHead className="text-center">Erros</TableHead>
+                  <TableHead className="text-right">Acuracidade</TableHead>
+                  <TableHead className="text-right">Checklist</TableHead>
+                  <TableHead className="text-right">Perda</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
+                  <TableRow><TableCell colSpan={15} className="text-center py-8">Carregando...</TableCell></TableRow>
+                ) : fechamentoPaginado.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8">
-                      Carregando...
-                    </TableCell>
-                  </TableRow>
-                ) : fechamentos.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                      <div className="flex flex-col items-center gap-2">
-                        <AlertTriangle className="w-8 h-8 text-amber-500" />
-                        <p>Nenhum fechamento encontrado para este período</p>
-                        <p className="text-sm">Clique em &quot;Calcular Fechamento&quot; para processar os dados</p>
-                      </div>
+                    <TableCell colSpan={15} className="text-center py-8 text-muted-foreground">
+                      <AlertTriangle className="w-8 h-8 mx-auto text-amber-500 mb-2" />
+                      Nenhum fechamento para este período. Clique em &quot;Calcular Fechamento&quot;.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  dadosPaginados.map((f) => (
+                  fechamentoPaginado.map((f) => (
                     <TableRow key={f.id}>
+                      <TableCell className="text-xs whitespace-nowrap">{mesSelecionado}/{anoSelecionado}</TableCell>
                       <TableCell className="font-medium">{f.colaborador_nome}</TableCell>
                       <TableCell>{f.colaborador_matricula}</TableCell>
-                      <TableCell className="text-right">{formatarNumero(f.peso_liquido_total)}</TableCell>
-                      <TableCell className="text-right">{formatarNumero(f.volume_total, 0)}</TableCell>
-                      <TableCell className="text-right">{formatarNumero(f.paletes_total)}</TableCell>
-                      <TableCell className="text-right">{formatarNumero(f.tempo_total)}</TableCell>
-                      <TableCell className="text-right font-medium">{formatarNumero(f.kg_hs)}</TableCell>
-                      <TableCell className="text-right font-medium">{formatarNumero(f.vol_hs)}</TableCell>
-                      <TableCell className="text-right font-medium">{formatarNumero(f.plt_hs)}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="outline">
-                          Sep: {f.erro_separacao_total} | Ent: {f.erro_entregas_total}
-                        </Badge>
-                      </TableCell>
+                      <TableCell className="text-xs">{f.colaborador_funcao ?? '—'}</TableCell>
+                      <TableCell className="text-xs">{f.filial_nome}</TableCell>
+                      <TableCell className="text-right">{formatarNum(Number(f.peso_liquido_total ?? 0))}</TableCell>
+                      <TableCell className="text-right">{formatarNum(Number(f.volume_total ?? 0), 0)}</TableCell>
+                      <TableCell className="text-right">{formatarNum(Number(f.paletes_total ?? 0))}</TableCell>
+                      <TableCell className="text-right">{formatarNum(Number(f.tempo_total ?? 0))}</TableCell>
+                      <TableCell className="text-right">{f.kg_hs != null ? formatarNum(Number(f.kg_hs)) : '—'}</TableCell>
+                      <TableCell className="text-right">{f.vol_hs != null ? formatarNum(Number(f.vol_hs)) : '—'}</TableCell>
+                      <TableCell className="text-right">{f.plt_hs != null ? formatarNum(Number(f.plt_hs)) : '—'}</TableCell>
+                      <TableCell className="text-right">{f.acuracidade != null ? formatarNum(Number(f.acuracidade)) : '—'}</TableCell>
+                      <TableCell className="text-right">{f.checklist != null ? formatarNum(Number(f.checklist)) : '—'}</TableCell>
+                      <TableCell className="text-right">{f.perda != null ? formatarNum(Number(f.perda)) : '—'}</TableCell>
                     </TableRow>
                   ))
                 )}
               </TableBody>
             </Table>
           </div>
+          {totalPaginasFechamento > 1 && (
+            <div className="flex justify-between mt-2">
+              <p className="text-sm text-muted-foreground">Página {paginaFechamento} de {totalPaginasFechamento}</p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setPaginaFechamento((p) => Math.max(1, p - 1))} disabled={paginaFechamento === 1}><ChevronLeft className="w-4 h-4" /> Anterior</Button>
+                <Button size="sm" variant="outline" onClick={() => setPaginaFechamento((p) => Math.min(totalPaginasFechamento, p + 1))} disabled={paginaFechamento === totalPaginasFechamento}>Próxima <ChevronRight className="w-4 h-4" /></Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Tabela Resultado */}
       <Card>
         <CardHeader>
           <CardTitle>Resultado Final</CardTitle>
-          <CardDescription>
-            Cálculo de produtividade e descontos aplicados
-          </CardDescription>
+          <CardDescription>Bônus por produtividade (meta R$ {META_BONUS}) e descontos</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="border rounded-lg overflow-auto">
+          <div className="border rounded-lg overflow-auto max-h-[400px]">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Colaborador</TableHead>
                   <TableHead>Filial</TableHead>
-                  <TableHead className="text-right">Vlr Kg/Hs</TableHead>
-                  <TableHead className="text-right">Vlr Vol/Hs</TableHead>
+                  <TableHead>Mes/Ano</TableHead>
+                  <TableHead>Função</TableHead>
+                  <TableHead>Matrícula</TableHead>
+                  <TableHead>Colaborador</TableHead>
+                  <TableHead className="text-right">Vlr Acuracidade</TableHead>
+                  <TableHead className="text-right">Vlr Checklist</TableHead>
                   <TableHead className="text-right">Vlr Plt/Hs</TableHead>
-                  <TableHead className="text-right">Prod. Bruta</TableHead>
-                  <TableHead className="text-center">% Erros</TableHead>
-                  <TableHead className="text-center">% Descontos</TableHead>
-                  <TableHead className="text-right">Prod. Final</TableHead>
+                  <TableHead className="text-right">Vlr Perda</TableHead>
+                  <TableHead className="text-right">Desconto</TableHead>
+                  <TableHead className="text-right">Prod. Final R$</TableHead>
                   <TableHead>Meta</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8">
-                      Carregando...
-                    </TableCell>
-                  </TableRow>
-                ) : fechamentosFiltrados.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                      Nenhum resultado disponível
-                    </TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={12} className="text-center py-8">Carregando...</TableCell></TableRow>
+                ) : resultadoPaginado.length === 0 ? (
+                  <TableRow><TableCell colSpan={12} className="text-center py-8 text-muted-foreground">Nenhum resultado. Calcule o fechamento.</TableCell></TableRow>
                 ) : (
-                  dadosPaginados.map((f) => {
-                    const corProdutividade = obterCorProdutividade(f.produtividade_final, f.meta)
+                  resultadoPaginado.map((r) => {
+                    const bonusFinal = Number(r.bonus_final ?? 0)
+                    const cor = obterCorProdutividade(bonusFinal, META_BONUS)
+                    const pctMeta = META_BONUS > 0 ? Math.min((bonusFinal / META_BONUS) * 100, 100) : 0
+                    const codigo = filiais.find((f) => f.id === r.id_filial)?.codigo ?? ''
+                    const setor = (r.funcao ?? '').toLowerCase().includes('estoque') ? 'estoque' : 'recebimento'
+                    const vlrAcu = calcularValorAcuracidade(Number(r.acuracidade ?? 0))
+                    const vlrChk = calcularValorChecklist(Number(r.checklist ?? 0))
+                    const vlrPlt = calcularValorPltHsPorFilial(Number(r.plt_hs ?? 0), codigo, setor)
+                    const vlrPerd = setor === 'estoque' ? calcularValorPerda(Number(r.perda ?? 0)) : 0
                     return (
-                      <TableRow key={f.id}>
-                        <TableCell className="font-medium">{f.colaborador_nome}</TableCell>
-                        <TableCell className="text-xs">{f.filial_nome}</TableCell>
-                        <TableCell className="text-right">{formatarMoeda(f.valor_kg_hs)}</TableCell>
-                        <TableCell className="text-right">{formatarMoeda(f.valor_vol_hs)}</TableCell>
-                        <TableCell className="text-right">{formatarMoeda(f.valor_plt_hs)}</TableCell>
-                        <TableCell className="text-right font-medium">{formatarMoeda(f.produtividade_bruta)}</TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={f.percentual_erros > 5 ? 'destructive' : 'secondary'}>
-                            {formatarNumero(f.percentual_erros, 1)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={f.percentual_descontos > 50 ? 'destructive' : 'secondary'}>
-                            {formatarNumero(f.percentual_descontos, 0)}%
-                          </Badge>
-                        </TableCell>
+                      <TableRow key={r.id}>
+                        <TableCell className="text-xs">{r.filial}</TableCell>
+                        <TableCell className="text-xs whitespace-nowrap">{mesSelecionado}/{anoSelecionado}</TableCell>
+                        <TableCell className="text-xs">{r.funcao ?? '—'}</TableCell>
+                        <TableCell>{r.colaborador_matricula}</TableCell>
+                        <TableCell className="font-medium">{r.colaborador_nome}</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(vlrAcu)}</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(vlrChk)}</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(vlrPlt)}</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(vlrPerd)}</TableCell>
+                        <TableCell className="text-right">{formatarMoeda(Number(r.desconto ?? 0))}</TableCell>
                         <TableCell className="text-right">
-                          <div
-                            className="inline-block px-3 py-1 rounded-md font-bold text-white"
-                            style={{ backgroundColor: corProdutividade }}
-                          >
-                            {formatarMoeda(f.produtividade_final)}
-                          </div>
+                          <span className="inline-block px-2 py-1 rounded font-bold text-white" style={{ backgroundColor: cor }}>{formatarMoeda(bonusFinal)}</span>
                         </TableCell>
                         <TableCell>
-                          <div className="space-y-1">
+                          <div className="space-y-1 min-w-[100px]">
                             <div className="flex justify-between text-xs">
-                              <span>Meta: {formatarMoeda(f.meta)}</span>
-                              <span className="font-medium">{formatarNumero(f.percentual_atingimento, 0)}%</span>
+                              <span>Meta {formatarMoeda(META_BONUS)}</span>
+                              <span className="font-medium">{formatarNum(pctMeta, 0)}%</span>
                             </div>
-                            <Progress value={Math.min(f.percentual_atingimento, 100)} className="h-2" />
+                            <Progress value={pctMeta} className="h-2" />
                           </div>
                         </TableCell>
                       </TableRow>
@@ -1027,37 +786,17 @@ export default function ResultadoPage() {
               </TableBody>
             </Table>
           </div>
+          {totalPaginasResultado > 1 && (
+            <div className="flex justify-between mt-2">
+              <p className="text-sm text-muted-foreground">Página {paginaResultado} de {totalPaginasResultado}</p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setPaginaResultado((p) => Math.max(1, p - 1))} disabled={paginaResultado === 1}><ChevronLeft className="w-4 h-4" /> Anterior</Button>
+                <Button size="sm" variant="outline" onClick={() => setPaginaResultado((p) => Math.min(totalPaginasResultado, p + 1))} disabled={paginaResultado === totalPaginasResultado}>Próxima <ChevronRight className="w-4 h-4" /></Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      {/* Paginação */}
-      {totalPaginas > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            Página {paginaAtual} de {totalPaginas} ({fechamentosFiltrados.length} registros)
-          </p>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setPaginaAtual(p => Math.max(1, p - 1))}
-              disabled={paginaAtual === 1}
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Anterior
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setPaginaAtual(p => Math.min(totalPaginas, p + 1))}
-              disabled={paginaAtual === totalPaginas}
-            >
-              Próxima
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

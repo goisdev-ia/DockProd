@@ -7,12 +7,12 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "PickProd - Cada pedido conta",
-  description: "Sistema de gestão de produtividade de separação - grupo Docemel",
+  title: "DockProd - Da doca ao resultado",
+  description: "Sistema de gestão de produtividade de recebimento na doca - grupo Docemel",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    title: "PickProd",
+    title: "DockProd",
     statusBarStyle: "black-translucent",
   },
   icons: {

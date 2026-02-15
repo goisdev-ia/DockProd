@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
+import { hash } from 'bcryptjs'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
@@ -94,11 +95,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Falha ao criar usuário' }, { status: 500 })
     }
 
+    const senhaHash = await hash(senha, 10)
     const { error: insertError } = await supabaseAdmin.from('usuarios').insert({
       id: newUser.user.id,
       nome: nome.trim(),
       email: email.trim().toLowerCase(),
-      senha: '',
+      senha: senhaHash,
       id_filial: id_filial && id_filial !== 'nenhuma' ? id_filial : null,
       tipo,
       ativo: ativo !== false,

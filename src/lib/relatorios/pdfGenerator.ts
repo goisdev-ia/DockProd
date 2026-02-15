@@ -59,7 +59,7 @@ export async function gerarRelatorioPDF(data: FechamentoLinha[], options: PdfOpt
       doc.setFontSize(7)
       doc.setTextColor(120)
       doc.text(
-        `PickProd - Relatório Gerado em ${new Date().toLocaleString('pt-BR')} | Página ${i} de ${pageCount}`,
+        `DockProd - Relatório Gerado em ${new Date().toLocaleString('pt-BR')} | Página ${i} de ${pageCount}`,
         pageWidth / 2,
         pageHeight - 5,
         { align: 'center' }
@@ -73,7 +73,7 @@ export async function gerarRelatorioPDF(data: FechamentoLinha[], options: PdfOpt
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
-  doc.text('PickProd - Relatório de Produtividade', margin, 10)
+  doc.text('DockProd - Relatório de Produtividade', margin, 10)
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
   doc.text(`Período: ${mesNome} ${ano}  |  Filial: ${filial || 'Todas'}  |  Usuário: ${usuario || '-'}  |  Gerado: ${new Date().toLocaleString('pt-BR')}`, margin, 16)
@@ -406,7 +406,7 @@ export async function gerarRelatorioPDFDadosGerais(
       doc.setFontSize(7)
       doc.setTextColor(120)
       doc.text(
-        `PickProd - Relatório Dados Gerais - Gerado em ${new Date().toLocaleString('pt-BR')} | Página ${i} de ${pageCount}`,
+        `DockProd - Relatório Dados Gerais - Gerado em ${new Date().toLocaleString('pt-BR')} | Página ${i} de ${pageCount}`,
         pageWidth / 2,
         pageHeight - 5,
         { align: 'center' }
@@ -419,7 +419,7 @@ export async function gerarRelatorioPDFDadosGerais(
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(16)
   doc.setFont('helvetica', 'bold')
-  doc.text('PickProd - Relatório Dados Gerais (Produtividade)', margin, 10)
+  doc.text('DockProd - Relatório Dados Gerais (Produtividade)', margin, 10)
   doc.setFontSize(9)
   doc.setFont('helvetica', 'normal')
   doc.text(`Usuário: ${usuario || '-'}  |  Gerado: ${new Date().toLocaleString('pt-BR')}  |  ${data.length} registro(s)`, margin, 16)

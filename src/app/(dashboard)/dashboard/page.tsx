@@ -13,6 +13,7 @@ import {
   getMesAnoPorPeriodo,
   type PeriodoOption,
 } from '@/lib/dashboard-filters'
+import { contarPaletes, intervalToHours } from '@/lib/calculos'
 import {
   DollarSign,
   TrendingUp,
@@ -58,6 +59,7 @@ import {
   DropdownMenuCheckboxItem,
 } from '@/components/ui/dropdown-menu'
 
+// DockProd: dados para gráficos vêm de resultados + fechamento (totais)
 interface FechamentoChartRow {
   id_colaborador: string
   id_filial: string
@@ -68,10 +70,6 @@ interface FechamentoChartRow {
   volume_total: number
   paletes_total: number
   valor_descontos: number
-  erro_separacao_total: number
-  erro_entregas_total: number
-  percentual_erros: number
-  percentual_descontos: number
 }
 
 interface ResumoColaboradorRow {
@@ -104,8 +102,8 @@ interface EvolucaoRow {
   total_paletes: number
 }
 
-interface TopClienteRow {
-  cliente: string
+interface TopFornecedorRow {
+  fornecedor: string
   total_peso: number
 }
 
@@ -167,12 +165,12 @@ export default function DashboardPage() {
   const [dataCargaInicio, setDataCargaInicio] = useState<string>('')
   const [dataCargaFim, setDataCargaFim] = useState<string>('')
   const [colaboradorIds, setColaboradorIds] = useState<string[]>([])
-  const [filtroCliente, setFiltroCliente] = useState('__TODOS__')
+  const [filtroFornecedor, setFiltroFornecedor] = useState('__TODOS__')
   const [periodoEvolucao, setPeriodoEvolucao] = useState<PeriodoOption>('trimestre_atual')
-  const [filiais, setFiliais] = useState<{ id: string; nome: string }[]>([])
+  const [filiais, setFiliais] = useState<{ id: string; nome: string; codigo?: string }[]>([])
   const [colaboradores, setColaboradores] = useState<{ id: string; nome: string }[]>([])
   const [showFilters, setShowFilters] = useState(false)
-  const [opcoesClientes, setOpcoesClientes] = useState<string[]>([])
+  const [opcoesFornecedores, setOpcoesFornecedores] = useState<string[]>([])
   const [kpis, setKpis] = useState({
     totalProdutividade: 0,
     percentualAtingimento: 0,
@@ -185,7 +183,7 @@ export default function DashboardPage() {
   })
   const [loading, setLoading] = useState(true)
   const [evolucaoData, setEvolucaoData] = useState<EvolucaoRow[]>([])
-  const [topClientesData, setTopClientesData] = useState<TopClienteRow[]>([])
+  const [topFornecedoresData, setTopFornecedoresData] = useState<TopFornecedorRow[]>([])
   const [fechamentoList, setFechamentoList] = useState<FechamentoChartRow[]>([])
   const [resumoColaborador, setResumoColaborador] = useState<ResumoColaboradorRow[]>([])
   const [resumoFilial, setResumoFilial] = useState<ResumoFilialRow[]>([])
@@ -222,7 +220,7 @@ export default function DashboardPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from('filiais')
-      .select('id, nome')
+      .select('id, nome, codigo')
       .eq('ativo', true)
     if (data) setFiliais(data)
   }, [])
@@ -237,10 +235,10 @@ export default function DashboardPage() {
 
   const carregarOpcoesFiltros = useCallback(async () => {
     const supabase = createClient()
-    const { data } = await supabase.from('dados_produtividade').select('cliente').order('cliente')
+    const { data } = await supabase.from('recebimentos').select('fornecedor').not('fornecedor', 'is', null)
     if (data) {
-      const uniqueClientes = Array.from(new Set(data.map(r => r.cliente).filter(Boolean)))
-      setOpcoesClientes(uniqueClientes)
+      const unique = Array.from(new Set(data.map((r: { fornecedor?: string }) => r.fornecedor).filter(Boolean))) as string[]
+      setOpcoesFornecedores(unique.sort())
     }
   }, [])
 
@@ -253,191 +251,293 @@ export default function DashboardPage() {
   }, [periodoSelecionado, dataCargaInicio, dataCargaFim])
   const datasEvolucao = useMemo(() => getDatasPorPeriodo(periodoEvolucao), [periodoEvolucao])
 
-  const rpcParams = useMemo(() => {
-    const p: Record<string, unknown> = {
-      p_id_filial: idFilial,
-      p_data_inicio: toISODate(datasPrincipal.data_inicio),
-      p_data_fim: toISODate(datasPrincipal.data_fim),
-      p_busca: buscaDebounced?.trim() || null,
-      p_id_colaborador: colaboradorIds.length > 0 ? colaboradorIds : null,
-      p_cliente: (filtroCliente && filtroCliente !== '__TODOS__') ? filtroCliente.trim() : null,
-    }
-    return p
-  }, [idFilial, datasPrincipal, buscaDebounced, colaboradorIds, filtroCliente])
+  const filtrosPrincipal = useMemo(() => ({
+    id_filial: idFilial,
+    data_inicio: toISODate(datasPrincipal.data_inicio),
+    data_fim: toISODate(datasPrincipal.data_fim),
+    busca: buscaDebounced?.trim() || '',
+    id_colaborador: colaboradorIds,
+    fornecedor: (filtroFornecedor && filtroFornecedor !== '__TODOS__') ? filtroFornecedor.trim() : null,
+  }), [idFilial, datasPrincipal, buscaDebounced, colaboradorIds, filtroFornecedor])
 
   const carregarCargasPorColaborador = useCallback(async () => {
     const supabase = createClient()
     try {
       const [ano, mes] = pieChartMesAno.split('-').map(Number)
       const mesInicio = new Date(ano, mes - 1, 1)
-      const mesFim = new Date(ano, mes, 0) // último dia do mês
+      const mesFim = new Date(ano, mes, 0)
 
       let query = supabase
-        .from('dados_produtividade')
-        .select('colaborador, id_carga_cliente')
-        .gte('data_carga', toISODate(mesInicio))
-        .lte('data_carga', toISODate(mesFim))
+        .from('recebimentos')
+        .select('usuario_recebto, id_coleta_recebimento')
+        .gte('dta_receb', toISODate(mesInicio))
+        .lte('dta_receb', toISODate(mesFim))
 
       if (idFilial) query = query.eq('id_filial', idFilial)
-      if (buscaDebounced) query = query.ilike('colaborador', `%${buscaDebounced}%`)
-      if (colaboradorIds.length > 0) query = query.in('id_colaborador', colaboradorIds)
+      if (buscaDebounced) query = query.ilike('usuario_recebto', `%${buscaDebounced}%`)
 
       const { data } = await query
 
       if (data) {
-        const grouped = data.reduce((acc, row) => {
-          const nome = row.colaborador || 'Sem nome'
-          if (!acc[nome]) acc[nome] = new Set()
-          if (row.id_carga_cliente) acc[nome].add(row.id_carga_cliente)
+        const grouped = (data as { usuario_recebto?: string; id_coleta_recebimento?: string }[]).reduce((acc, row) => {
+          const nome = row.usuario_recebto || 'Sem nome'
+          if (!acc[nome]) acc[nome] = new Set<string>()
+          if (row.id_coleta_recebimento) acc[nome].add(row.id_coleta_recebimento)
           return acc
         }, {} as Record<string, Set<string>>)
 
         const result = Object.entries(grouped)
           .map(([nome, cargas]) => ({ nome, total: cargas.size }))
           .sort((a, b) => b.total - a.total)
-          .slice(0, 10) // Top 10
-
+          .slice(0, 10)
         setCargasPorColaborador(result)
       }
     } catch (error) {
       console.error('Erro ao carregar cargas por colaborador:', error)
     }
-  }, [pieChartMesAno, idFilial, buscaDebounced, colaboradorIds])
+  }, [pieChartMesAno, idFilial, buscaDebounced])
 
   const carregarKPIs = useCallback(async () => {
     const supabase = createClient()
     setLoading(true)
     try {
-      const { data: kpisDados, error: kpisError } = await supabase.rpc('get_dashboard_kpis', rpcParams)
-      if (kpisError) {
-        console.error('Erro ao carregar KPIs do dashboard:', kpisError)
-        setLoading(false)
-        return
+      const { data_inicio, data_fim, id_filial, fornecedor, busca } = filtrosPrincipal
+
+      // Recebimentos no período
+      let qRec = supabase
+        .from('recebimentos')
+        .select('id, id_filial, filial, fornecedor, usuario_recebto, dta_receb, nota_fiscal, id_coleta_recebimento, peso_liquido_recebido, qtd_caixas_recebidas')
+        .gte('dta_receb', data_inicio)
+        .lte('dta_receb', data_fim)
+      if (id_filial) qRec = qRec.eq('id_filial', id_filial)
+      if (fornecedor) qRec = qRec.eq('fornecedor', fornecedor)
+      if (busca) qRec = qRec.or(`fornecedor.ilike.%${busca}%,coleta.ilike.%${busca}%`)
+
+      const { data: recebimentos } = await qRec
+      const recList = (recebimentos ?? []) as Array<{
+        id: string
+        id_filial: string | null
+        filial: string | null
+        fornecedor: string | null
+        usuario_recebto: string | null
+        dta_receb: string | null
+        nota_fiscal: string | null
+        id_coleta_recebimento: string | null
+        peso_liquido_recebido: number | null
+        qtd_caixas_recebidas: number | null
+      }>
+
+      const idColetas = Array.from(new Set(recList.map((r) => r.id_coleta_recebimento).filter(Boolean))) as string[]
+      let tempoList: Array<{ id_coleta_recebimento: string | null; tempo_recebimento: string | null }> = []
+      if (idColetas.length > 0) {
+        const { data: tempoData } = await supabase
+          .from('tempo')
+          .select('id_coleta_recebimento, tempo_recebimento')
+          .in('id_coleta_recebimento', idColetas)
+        tempoList = (tempoData ?? []) as Array<{ id_coleta_recebimento: string | null; tempo_recebimento: string | null }>
       }
-      const row = Array.isArray(kpisDados) && kpisDados.length > 0 ? kpisDados[0] : null
-      const totalKg = row ? Number(row.total_kg ?? 0) : 0
-      const totalVolume = row ? Number(row.total_volume ?? 0) : 0
-      const totalPaletes = row ? Number(row.total_paletes ?? 0) : 0
-      const totalCargas = row ? Number(row.total_cargas ?? 0) : 0
-      const totalPedidos = row ? Number(row.total_pedidos ?? 0) : 0
-      const somaTempo = row ? Number(row.soma_tempo ?? 0) : 0
+
+      const tempoPorColeta = new Map<string, number>()
+      tempoList.forEach((t) => {
+        const id = t.id_coleta_recebimento
+        if (id) {
+          const h = intervalToHours(t.tempo_recebimento)
+          if (h != null) tempoPorColeta.set(id, (tempoPorColeta.get(id) ?? 0) + h)
+        }
+      })
+
+      const porColeta = new Map<string, { id_filial: string | null; peso: number; volume: number; qtd_caixas: number[] }>()
+      recList.forEach((r) => {
+        const id = r.id_coleta_recebimento ?? r.id
+        if (!porColeta.has(id)) porColeta.set(id, { id_filial: r.id_filial, peso: 0, volume: 0, qtd_caixas: [] })
+        const g = porColeta.get(id)!
+        g.peso += Number(r.peso_liquido_recebido ?? 0)
+        g.volume += Number(r.qtd_caixas_recebidas ?? 0)
+        g.qtd_caixas.push(Number(r.qtd_caixas_recebidas ?? 0))
+      })
+
+      let totalKg = 0
+      let totalVolume = 0
+      let totalPaletes = 0
+      const totalCargas = porColeta.size
+      const notasSet = new Set(recList.map((r) => r.nota_fiscal).filter(Boolean))
+      const totalNotas = notasSet.size
+      let somaTempo = 0
+      porColeta.forEach((g, idColeta) => {
+        totalKg += g.peso
+        totalVolume += g.volume
+        totalPaletes += contarPaletes(g.qtd_caixas)
+        const th = tempoPorColeta.get(idColeta) ?? 0
+        somaTempo += th
+      })
       const tempoMedio = totalCargas > 0 ? somaTempo / totalCargas : 0
 
-      const mesAnoList = getMesAnoPorPeriodo(periodoSelecionado as PeriodoOption)
-      let queryFechamento = supabase
-        .from('fechamento')
-        .select(`
-          id_colaborador,
-          id_filial,
-          produtividade_final,
-          peso_liquido_total,
-          volume_total,
-          paletes_total,
-          valor_descontos,
-          erro_separacao_total,
-          erro_entregas_total,
-          percentual_erros,
-          percentual_descontos,
-          percentual_atingimento,
-          colaboradores (nome),
-          filiais (nome)
-        `)
-      if (idFilial) queryFechamento = queryFechamento.eq('id_filial', idFilial)
-      if (mesAnoList.length > 0) {
-        const orClause = mesAnoList
-          .map(({ mes, ano }) => `and(mes.eq."${mes}",ano.eq.${ano})`)
-          .join(',')
-        queryFechamento = queryFechamento.or(orClause)
-      }
-      // Sincronizar filtro de colaborador com fechamento
-      if (colaboradorIds.length > 0) {
-        queryFechamento = queryFechamento.in('id_colaborador', colaboradorIds)
-      }
-      const { data: fechamentos } = await queryFechamento
+      // Evolução por dia (dta_receb)
+      const porDia = new Map<string, { kg: number; volume: number; paletes: number }>()
+      const coletasPorDia = new Map<string, Map<string, number[]>>()
+      recList.forEach((r) => {
+        const d = r.dta_receb ?? ''
+        if (!d) return
+        if (!porDia.has(d)) {
+          porDia.set(d, { kg: 0, volume: 0, paletes: 0 })
+          coletasPorDia.set(d, new Map())
+        }
+        const pd = porDia.get(d)!
+        pd.kg += Number(r.peso_liquido_recebido ?? 0)
+        pd.volume += Number(r.qtd_caixas_recebidas ?? 0)
+        const idColeta = r.id_coleta_recebimento ?? ''
+        if (!coletasPorDia.get(d)!.has(idColeta)) coletasPorDia.get(d)!.set(idColeta, [])
+        coletasPorDia.get(d)!.get(idColeta)!.push(Number(r.qtd_caixas_recebidas ?? 0))
+      })
+      coletasPorDia.forEach((coletas, d) => {
+        let plts = 0
+        coletas.forEach((qtds) => { plts += contarPaletes(qtds) })
+        const pd = porDia.get(d)!
+        if (pd) pd.paletes = plts
+      })
+      const evolucaoArr: EvolucaoRow[] = Array.from(porDia.entries())
+        .map(([data_carga, v]) => ({ data_carga, total_kg: v.kg, total_volume: v.volume, total_paletes: v.paletes }))
+        .sort((a, b) => a.data_carga.localeCompare(b.data_carga))
+      setEvolucaoDataInterna(evolucaoArr)
 
-      const totalProdutividade =
-        fechamentos?.reduce((sum, f) => sum + (Number(f.produtividade_final) || 0), 0) ?? 0
-      const somaPercentualAtingimento =
-        fechamentos?.reduce((sum, f) => sum + (Number(f.percentual_atingimento) || 0), 0) ?? 0
-      const percentualAtingimento = (fechamentos?.length ?? 0) > 0
-        ? somaPercentualAtingimento / (fechamentos?.length ?? 1)
-        : 0
-      const chartList: FechamentoChartRow[] = (fechamentos ?? []).map((f: Record<string, unknown>) => ({
-        id_colaborador: f.id_colaborador as string,
-        id_filial: f.id_filial as string,
-        colaborador_nome: (f.colaboradores as { nome?: string } | null)?.nome ?? '',
-        filial_nome: (f.filiais as { nome?: string } | null)?.nome ?? '',
-        produtividade_final: Number(f.produtividade_final ?? 0),
-        peso_liquido_total: Number(f.peso_liquido_total ?? 0),
-        volume_total: Number(f.volume_total ?? 0),
-        paletes_total: Number(f.paletes_total ?? 0),
-        valor_descontos: Number(f.valor_descontos ?? 0),
-        erro_separacao_total: Number(f.erro_separacao_total ?? 0),
-        erro_entregas_total: Number(f.erro_entregas_total ?? 0),
-        percentual_erros: Number(f.percentual_erros ?? 0),
-        percentual_descontos: Number(f.percentual_descontos ?? 0),
+      // Top 5 fornecedores por peso
+      const porFornec = new Map<string, number>()
+      recList.forEach((r) => {
+        const f = r.fornecedor ?? 'N/A'
+        porFornec.set(f, (porFornec.get(f) ?? 0) + Number(r.peso_liquido_recebido ?? 0))
+      })
+      const topFornec = Array.from(porFornec.entries())
+        .map(([fornecedor, total_peso]) => ({ fornecedor, total_peso }))
+        .sort((a, b) => b.total_peso - a.total_peso)
+        .slice(0, 5)
+      setTopFornecedoresData(topFornec)
+
+      // Resumo por colaborador (usuario_recebto)
+      const porUsuario = new Map<string, { idColetas: Set<string>; notas: Set<string>; peso: number; volume: number; qtd_caixas: number[] }>()
+      recList.forEach((r) => {
+        const u = r.usuario_recebto ?? 'Sem nome'
+        if (!porUsuario.has(u)) porUsuario.set(u, { idColetas: new Set(), notas: new Set(), peso: 0, volume: 0, qtd_caixas: [] })
+        const g = porUsuario.get(u)!
+        if (r.id_coleta_recebimento) g.idColetas.add(r.id_coleta_recebimento)
+        if (r.nota_fiscal) g.notas.add(r.nota_fiscal)
+        g.peso += Number(r.peso_liquido_recebido ?? 0)
+        g.volume += Number(r.qtd_caixas_recebidas ?? 0)
+        g.qtd_caixas.push(Number(r.qtd_caixas_recebidas ?? 0))
+      })
+      const horasPorColeta = new Map<string, number>()
+      tempoList.forEach((t) => {
+        const id = t.id_coleta_recebimento
+        if (id) {
+          const h = intervalToHours(t.tempo_recebimento) ?? 0
+          horasPorColeta.set(id, (horasPorColeta.get(id) ?? 0) + h)
+        }
+      })
+      const resumoColArr: ResumoColaboradorRow[] = Array.from(porUsuario.entries()).map(([nome, g]) => {
+        let tempoTotal = 0
+        g.idColetas.forEach((idc) => { tempoTotal += horasPorColeta.get(idc) ?? 0 })
+        const tempoMedio = g.idColetas.size > 0 ? tempoTotal / g.idColetas.size : 0
+        return {
+          id_colaborador: nome,
+          nome,
+          total_cargas: g.idColetas.size,
+          total_pedidos: g.notas.size,
+          peso_total: g.peso,
+          volume_total: g.volume,
+          paletes_total: contarPaletes(g.qtd_caixas),
+          tempo_total: tempoTotal,
+          tempo_medio: tempoMedio,
+        }
+      })
+      setResumoColaborador(resumoColArr)
+
+      // Resumo por filial (agregar porColeta por id_filial)
+      const porFilial = new Map<string, { cargas: number; peso: number; volume: number; paletes: number; tempo: number }>()
+      porColeta.forEach((g, idColeta) => {
+        const idF = g.id_filial ?? 'N/A'
+        if (!porFilial.has(idF)) porFilial.set(idF, { cargas: 0, peso: 0, volume: 0, paletes: 0, tempo: 0 })
+        const pf = porFilial.get(idF)!
+        pf.cargas += 1
+        pf.peso += g.peso
+        pf.volume += g.volume
+        pf.paletes += contarPaletes(g.qtd_caixas)
+        pf.tempo += tempoPorColeta.get(idColeta) ?? 0
+      })
+      const resumoFilArr: ResumoFilialRow[] = Array.from(porFilial.entries()).map(([id_filial, g]) => ({
+        id_filial,
+        nome: filiais.find((f) => f.id === id_filial)?.nome ?? id_filial,
+        total_cargas: g.cargas,
+        total_pedidos: 0,
+        peso_total: g.peso,
+        volume_total: g.volume,
+        paletes_total: g.paletes,
+        tempo_total: g.tempo,
       }))
+      setResumoFilial(resumoFilArr)
+
+      // Resultados + Fechamento para R$ e gráficos (resultados não tem coluna ano)
+      const mesAnoList = getMesAnoPorPeriodo(periodoSelecionado as PeriodoOption)
+      const mesesList = mesAnoList.map(({ mes }) => mes)
+      let qRes = supabase
+        .from('resultados')
+        .select('id_colaborador, id_filial, filial, mes, bonus_final, desconto, colaboradores(nome)')
+      if (id_filial) qRes = qRes.eq('id_filial', id_filial)
+      if (colaboradorIds.length > 0) qRes = qRes.in('id_colaborador', colaboradorIds)
+      if (mesesList.length > 0) {
+        const orResultados = mesesList.map((mes) => `mes.eq."${mes}"`).join(',')
+        qRes = qRes.or(orResultados)
+      }
+      const { data: resultados } = await qRes
+
+      let qFech = supabase
+        .from('fechamento')
+        .select('id_colaborador, id_filial, mes, ano, peso_liquido_total, volume_total, paletes_total, colaboradores(nome), filiais(nome)')
+      if (id_filial) qFech = qFech.eq('id_filial', id_filial)
+      if (colaboradorIds.length > 0) qFech = qFech.in('id_colaborador', colaboradorIds)
+      const orFech = mesAnoList.map(({ mes, ano }) => `and(mes.eq."${mes}",ano.eq.${ano})`).join(',')
+      if (orFech) qFech = qFech.or(orFech)
+      const { data: fechamentos } = await qFech
+
+      const resList = (resultados ?? []) as Array<Record<string, unknown> & { id_colaborador?: string; id_filial?: string; filial?: string; mes?: string; bonus_final?: number; desconto?: number; colaboradores?: { nome?: string } | null }>
+      const fechList = (fechamentos ?? []) as Array<Record<string, unknown> & { id_colaborador?: string; id_filial?: string; mes?: string; ano?: number; peso_liquido_total?: number; volume_total?: number; paletes_total?: number; colaboradores?: { nome?: string } | null; filiais?: { nome?: string } | null }>
+
+      const resultadoPorChave = new Map<string, { bonus_final: number; desconto: number }>()
+      resList.forEach((r) => {
+        const key = `${r.id_colaborador}-${r.id_filial}-${r.mes}`
+        resultadoPorChave.set(key, {
+          bonus_final: Number(r.bonus_final ?? 0),
+          desconto: Number(r.desconto ?? 0),
+        })
+      })
+
+      const chartList: FechamentoChartRow[] = resList.map((r) => {
+        const key = `${r.id_colaborador}-${r.id_filial}-${r.mes}`
+        const res = resultadoPorChave.get(key) ?? { bonus_final: 0, desconto: 0 }
+        const fech = fechList.find((f) => f.id_colaborador === r.id_colaborador && f.id_filial === r.id_filial && String(f.mes) === String(r.mes))
+        return {
+          id_colaborador: r.id_colaborador as string,
+          id_filial: r.id_filial as string,
+          colaborador_nome: (r.colaboradores as { nome?: string } | null)?.nome ?? '',
+          filial_nome: (r.filial as string) ?? '',
+          produtividade_final: res.bonus_final,
+          peso_liquido_total: fech ? Number(fech.peso_liquido_total ?? 0) : 0,
+          volume_total: fech ? Number(fech.volume_total ?? 0) : 0,
+          paletes_total: fech ? Number(fech.paletes_total ?? 0) : 0,
+          valor_descontos: res.desconto,
+        }
+      })
       setFechamentoList(chartList)
 
-      const paramsEvolucao = {
-        ...rpcParams,
-        p_data_inicio: toISODate(datasEvolucao.data_inicio),
-        p_data_fim: toISODate(datasEvolucao.data_fim),
-      }
-      const { data: evolucao } = await supabase.rpc('get_dashboard_evolucao', paramsEvolucao)
-      setEvolucaoDataInterna(
-        (evolucao ?? []).map((r: { data_carga: string; total_kg: number; total_volume: number; total_paletes: number }) => ({
-          data_carga: r.data_carga,
-          total_kg: Number(r.total_kg ?? 0),
-          total_volume: Number(r.total_volume ?? 0),
-          total_paletes: Number(r.total_paletes ?? 0),
-        }))
-      )
-
-      const { data: topClientes } = await supabase.rpc('get_dashboard_top_clientes', {
-        ...rpcParams,
-        p_limit: 5,
-      })
-      setTopClientesData(
-        (topClientes ?? []).map((r: { cliente: string; total_peso: number }) => ({
-          cliente: r.cliente ?? '',
-          total_peso: Number(r.total_peso ?? 0),
-        }))
-      )
-
-      const { data: resumoCol } = await supabase.rpc('get_dashboard_resumo_colaborador', rpcParams)
-      setResumoColaborador(
-        (resumoCol ?? []).map((r: Record<string, unknown>) => ({
-          id_colaborador: r.id_colaborador as string,
-          nome: (r.nome as string) ?? '',
-          total_cargas: Number(r.total_cargas ?? 0),
-          total_pedidos: Number(r.total_pedidos ?? 0),
-          peso_total: Number(r.peso_total ?? 0),
-          volume_total: Number(r.volume_total ?? 0),
-          paletes_total: Number(r.paletes_total ?? 0),
-          tempo_total: Number(r.tempo_total ?? 0),
-          tempo_medio: Number(r.tempo_medio ?? 0),
-        }))
-      )
-      const { data: resumoFil } = await supabase.rpc('get_dashboard_resumo_filial', rpcParams)
-      setResumoFilial(
-        (resumoFil ?? []).map((r: Record<string, unknown>) => ({
-          id_filial: r.id_filial as string,
-          nome: (r.nome as string) ?? '',
-          total_cargas: Number(r.total_cargas ?? 0),
-          total_pedidos: Number(r.total_pedidos ?? 0),
-          peso_total: Number(r.peso_total ?? 0),
-          volume_total: Number(r.volume_total ?? 0),
-          paletes_total: Number(r.paletes_total ?? 0),
-          tempo_total: Number(r.tempo_total ?? 0),
-        }))
-      )
+      const totalProdutividade = resList.reduce((s, r) => s + Number(r.bonus_final ?? 0), 0)
+      const countResultados = resList.length
+      const percentualAtingimento = countResultados > 0 && 250 > 0
+        ? (totalProdutividade / (countResultados * 250)) * 100
+        : 0
 
       setKpis({
         totalProdutividade,
         percentualAtingimento,
         totalCargas,
-        totalPedidos,
+        totalPedidos: totalNotas,
         totalKg,
         totalVolume,
         totalPaletes,
@@ -448,7 +548,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [rpcParams, datasEvolucao, periodoSelecionado, idFilial, colaboradorIds])
+  }, [filtrosPrincipal, periodoSelecionado, idFilial, colaboradorIds, filiais])
 
   useEffect(() => {
     carregarUsuarioLogado()
@@ -518,14 +618,14 @@ export default function DashboardPage() {
   const descontosPorColaborador = useMemo(() => Object.values(porColaboradorR$)
     .sort((a, b) => b.valor_descontos - a.valor_descontos)
     .slice(0, 10), [porColaboradorR$])
-  const top3Erros = useMemo(() => {
+  const top3Descontos = useMemo(() => {
     const porColab = fechamentoList.reduce((acc, f) => {
       const nome = f.colaborador_nome || 'Sem nome'
-      if (!acc[nome]) acc[nome] = { nome, totalErros: 0 }
-      acc[nome].totalErros += (f.erro_separacao_total ?? 0) + (f.erro_entregas_total ?? 0)
+      if (!acc[nome]) acc[nome] = { nome, valor_descontos: 0 }
+      acc[nome].valor_descontos += f.valor_descontos ?? 0
       return acc
-    }, {} as Record<string, { nome: string; totalErros: number }>)
-    return Object.values(porColab).sort((a, b) => b.totalErros - a.totalErros).slice(0, 3)
+    }, {} as Record<string, { nome: string; valor_descontos: number }>)
+    return Object.values(porColab).filter((x) => x.valor_descontos > 0).sort((a, b) => b.valor_descontos - a.valor_descontos).slice(0, 3)
   }, [fechamentoList])
   const porFilialR$ = useMemo(() => fechamentoList.reduce((acc, f) => {
     const nome = f.filial_nome || 'Sem filial'
@@ -550,16 +650,16 @@ export default function DashboardPage() {
   const pieDataDescontos = useMemo(() => {
     const porColab = fechamentoList.reduce((acc, f) => {
       const nome = f.colaborador_nome || 'Sem nome'
-      if (!acc[nome]) acc[nome] = { nome, percentual: 0 }
-      acc[nome].percentual += (f.percentual_erros ?? 0) + (f.percentual_descontos ?? 0)
+      if (!acc[nome]) acc[nome] = { nome, valor: 0 }
+      acc[nome].valor += f.valor_descontos ?? 0
       return acc
-    }, {} as Record<string, { nome: string; percentual: number }>)
+    }, {} as Record<string, { nome: string; valor: number }>)
     const cores = ['#b91c1c', '#dc2626', '#ef4444', '#f87171', '#fca5a5', '#fecaca', '#991b1b', '#7f1d1d']
     return Object.values(porColab)
-      .filter((d) => d.percentual > 0)
-      .sort((a, b) => b.percentual - a.percentual)
+      .filter((d) => d.valor > 0)
+      .sort((a, b) => b.valor - a.valor)
       .slice(0, 12)
-      .map((d, i) => ({ name: formatarNomeColaborador(d.nome), value: Math.round(d.percentual * 10) / 10, fill: cores[i % cores.length] }))
+      .map((d, i) => ({ name: formatarNomeColaborador(d.nome), value: Math.round(d.valor * 100) / 100, fill: cores[i % cores.length] }))
   }, [fechamentoList])
   const top3Prod = useMemo(() => porColaboradorArrR$.slice(0, 3), [porColaboradorArrR$])
   const top3Kg = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.peso_liquido_total - a.peso_liquido_total).slice(0, 3), [porColaboradorArrTotais])
@@ -596,7 +696,7 @@ export default function DashboardPage() {
                 setDataCargaFim('')
                 setBusca('')
                 setColaboradorIds([])
-                setFiltroCliente('__TODOS__')
+                setFiltroFornecedor('__TODOS__')
               }}
             >
               Limpar filtros
@@ -657,7 +757,7 @@ export default function DashboardPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Data de Carga (início)</Label>
+                <Label>Data Receb. (início)</Label>
                 <Input
                   type="date"
                   value={dataCargaInicio}
@@ -665,7 +765,7 @@ export default function DashboardPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label>Data de Carga (fim)</Label>
+                <Label>Data Receb. (fim)</Label>
                 <Input
                   type="date"
                   value={dataCargaFim}
@@ -676,7 +776,7 @@ export default function DashboardPage() {
                 <Label htmlFor="busca">Busca Geral</Label>
                 <Input
                   id="busca"
-                  placeholder="Buscar por colaborador, cliente, carga..."
+                  placeholder="Buscar por colaborador, fornecedor, coleta..."
                   value={busca}
                   onChange={(e) => setBusca(e.target.value)}
                 />
@@ -708,15 +808,15 @@ export default function DashboardPage() {
                 </DropdownMenu>
               </div>
               <div className="space-y-2">
-                <Label>Cliente</Label>
-                <Select value={filtroCliente} onValueChange={setFiltroCliente}>
+                <Label>Fornecedor</Label>
+                <Select value={filtroFornecedor} onValueChange={setFiltroFornecedor}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Todos os clientes" />
+                    <SelectValue placeholder="Todos os fornecedores" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__TODOS__">Todos</SelectItem>
-                    {opcoesClientes.slice(0, 100).map((cliente) => (
-                      <SelectItem key={cliente} value={cliente}>{cliente}</SelectItem>
+                    {opcoesFornecedores.slice(0, 100).map((fornec) => (
+                      <SelectItem key={fornec} value={fornec}>{fornec}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -747,11 +847,11 @@ export default function DashboardPage() {
         <KPICard
           title="Total de Cargas"
           value={formatarNumero(kpis.totalCargas)}
-          description="Cargas separadas"
+          description="Coletas recebidas"
           icon={<Package className="h-4 w-4 text-purple-600" />}
         />
         <KPICard
-          title="Total de Pedidos"
+          title="Total de Notas"
           value={formatarNumero(kpis.totalPedidos)}
           description="Notas fiscais"
           icon={<FileText className="h-4 w-4 text-orange-600" />}
@@ -761,13 +861,13 @@ export default function DashboardPage() {
       {/* KPI Cards - Linha 2 */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <KPICard
-          title="Total Separado em KG"
+          title="Total Recebido em KG"
           value={formatarNumero(kpis.totalKg / 1000, 2)}
           description={`${formatarNumero(kpis.totalKg)} kg`}
           icon={<Weight className="h-4 w-4 text-gray-600" />}
         />
         <KPICard
-          title="Total Separado em Volume"
+          title="Total em Volume (caixas)"
           value={formatarNumero(kpis.totalVolume)}
           description="Quantidade total"
           icon={<Box className="h-4 w-4 text-cyan-600" />}
@@ -775,13 +875,13 @@ export default function DashboardPage() {
         <KPICard
           title="Total em Paletes"
           value={formatarNumero(kpis.totalPaletes, 1)}
-          description="Peso líquido / 550"
+          description="Regra por caixas"
           icon={<Boxes className="h-4 w-4 text-indigo-600" />}
         />
         <KPICard
-          title="Tempo Médio Separação"
+          title="Tempo Médio Recebimento"
           value={`${formatarNumero(kpis.tempoMedio, 1)}h`}
-          description="Por carga"
+          description="Por coleta"
           icon={<Clock className="h-4 w-4 text-red-600" />}
         />
       </div>
@@ -956,14 +1056,14 @@ export default function DashboardPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>6. Top 5 Clientes por Peso</CardTitle>
+            <CardTitle>6. Top 5 Fornecedores por Peso</CardTitle>
           </CardHeader>
           <CardContent className="h-80">
-            {topClientesData.length === 0 ? (
+            {topFornecedoresData.length === 0 ? (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%" minHeight={300}>
-                <AreaChart data={topClientesData.map((r) => ({ ...r, nome: r.cliente.length > 20 ? r.cliente.slice(0, 20) + '…' : r.cliente }))}>
+                <AreaChart data={topFornecedoresData.map((r) => ({ ...r, nome: r.fornecedor.length > 20 ? r.fornecedor.slice(0, 20) + '…' : r.fornecedor }))}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="nome" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 11 }} />
@@ -1001,8 +1101,8 @@ export default function DashboardPage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>8. Descontos em % dos Colaboradores</CardTitle>
-            <CardDescription>Percentual de descontos (erros, faltas, atestados, advertência, suspensão, férias) por colaborador</CardDescription>
+            <CardTitle>8. Descontos (R$) por Colaborador</CardTitle>
+            <CardDescription>Valor de descontos aplicados por colaborador</CardDescription>
           </CardHeader>
           <CardContent className="h-80">
             {!isPeriodoMensalOuMaior ? (
@@ -1019,13 +1119,13 @@ export default function DashboardPage() {
                     cx="50%"
                     cy="50%"
                     outerRadius={80}
-                    label={({ name, value }) => `${name}: ${value}%`}
+                    label={({ name, value }) => `${name}: ${formatarMoeda(Number(value))}`}
                   >
                     {pieDataDescontos.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={pieDataDescontos[index].fill} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number | undefined) => (v != null ? `${Number(v).toFixed(1)}%` : '')} />
+                  <Tooltip formatter={(v: number | undefined) => (v != null ? formatarMoeda(Number(v)) : '')} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -1094,12 +1194,12 @@ export default function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Top 3 Nº de Cargas Separadas x Colaborador</CardTitle>
+              <CardTitle className="text-base">Top 3 Nº de Cargas (Coletas) x Colaborador</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {top3Cargas.map((r, i) => (
-                  <div key={r.id_colaborador} className="flex justify-between items-center text-sm">
+                  <div key={r.id_colaborador ?? `${r.nome}-${i}`} className="flex justify-between items-center text-sm">
                     <span className="font-medium">#{i + 1} {r.nome}</span>
                     <span>{formatarNumero(r.total_cargas, 0)}</span>
                   </div>
@@ -1110,12 +1210,12 @@ export default function DashboardPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Top 3 Nº de Pedidos Separados x Colaborador</CardTitle>
+              <CardTitle className="text-base">Top 3 Nº de Notas x Colaborador</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {top3Pedidos.map((r, i) => (
-                  <div key={r.id_colaborador} className="flex justify-between items-center text-sm">
+                  <div key={r.id_colaborador ?? i} className="flex justify-between items-center text-sm">
                     <span className="font-medium">#{i + 1} {r.nome}</span>
                     <span>{formatarNumero(r.total_pedidos, 0)}</span>
                   </div>
@@ -1212,17 +1312,17 @@ export default function DashboardPage() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base text-muted-foreground">Top 3 Colaboradores x Erros</CardTitle>
+              <CardTitle className="text-base text-muted-foreground">Top 3 Descontos (R$) x Colaborador</CardTitle>
             </CardHeader>
             <CardContent>
-              {top3Erros.length === 0 ? (
-                <p className="text-muted-foreground text-sm">Sem dados</p>
+              {top3Descontos.length === 0 ? (
+                <p className="text-muted-foreground text-sm">Sem descontos no período</p>
               ) : (
                 <div className="space-y-2">
-                  {top3Erros.map((r, i) => (
+                  {top3Descontos.map((r, i) => (
                     <div key={r.nome} className="flex justify-between items-center text-sm">
                       <span className="font-medium">#{i + 1} {formatarNomeColaborador(r.nome)}</span>
-                      <span>{r.totalErros} erros</span>
+                      <span>{formatarMoeda(r.valor_descontos)}</span>
                     </div>
                   ))}
                 </div>

@@ -13,6 +13,9 @@ import { toast } from 'sonner'
 import {
   fetchReportData,
   fetchEvolucaoTemporal,
+  fetchReportDescontos,
+  fetchReportResultados,
+  fetchReportDadosPorColeta,
   fetchAllDadosProdutividade,
   exportCSV,
   type FechamentoLinha,
@@ -167,21 +170,22 @@ export default function RelatoriosPage() {
         const [idColab, mes, anoStr] = key.split('|')
         const ano = Number(anoStr)
         const { dataInicio, dataFim } = getIntervaloMes(mes, ano)
-        const { data: rows } = await supabase
-          .from('dados_produtividade')
-          .select('data_carga, erro_separacao, erro_entregas, observacao')
-          .eq('id_colaborador', idColab)
-          .gte('data_carga', dataInicio)
-          .lte('data_carga', dataFim)
+        const { data: colRow } = await supabase.from('colaboradores').select('nome').eq('id', idColab).single()
+        const nomeCol = (colRow as { nome?: string } | null)?.nome
         const errosSeparacao: ErroSeparacaoItem[] = []
         const errosEntregas: ErroEntregaItem[] = []
-        for (const row of rows ?? []) {
-          const dataCarga = row.data_carga ? String(row.data_carga).slice(0, 10) : ''
-          const dataBR = dataCarga ? formatarDataBR(dataCarga) : ''
-          const sep = Number(row.erro_separacao ?? 0)
-          const ent = Number(row.erro_entregas ?? 0)
-          if (sep > 0) errosSeparacao.push({ data: dataBR, quantidade: sep })
-          if (ent > 0) errosEntregas.push({ data: dataBR, quantidade: ent, observacao: row.observacao ?? undefined })
+        if (nomeCol) {
+          const { data: rows } = await supabase
+            .from('recebimentos')
+            .select('dta_receb, observacao')
+            .eq('usuario_recebto', nomeCol)
+            .gte('dta_receb', dataInicio)
+            .lte('dta_receb', dataFim)
+          for (const row of rows ?? []) {
+            const dataCarga = row.dta_receb ? String(row.dta_receb).slice(0, 10) : ''
+            const dataBR = dataCarga ? formatarDataBR(dataCarga) : ''
+            if (row.observacao) errosEntregas.push({ data: dataBR, quantidade: 0, observacao: row.observacao })
+          }
         }
         errosMap[key] = { errosSeparacao, errosEntregas }
       }
@@ -195,16 +199,17 @@ export default function RelatoriosPage() {
     if (!desconto) return { itens: [] }
     const itens: ResumoDescontoItem[] = []
     if (desconto.falta_injustificada >= 1) itens.push({ tipo: 'Falta injustificada', percentual: 100 })
-    if (desconto.ferias) itens.push({ tipo: 'Férias', percentual: 100 })
+    if ((desconto.ferias ?? 0) > 0) itens.push({ tipo: 'Férias', percentual: 100 })
     if (desconto.advertencia > 0) itens.push({ tipo: 'Advertência', percentual: desconto.advertencia * 50 })
     if (desconto.suspensao > 0) itens.push({ tipo: 'Suspensão', percentual: Math.min(desconto.suspensao * 100, 100) })
-    if (desconto.atestado_dias > 0) {
+    const atestadoDias = desconto.atestado ?? 0
+    if (atestadoDias > 0) {
       let p = 25
-      if (desconto.atestado_dias <= 2) p = 25
-      else if (desconto.atestado_dias <= 5) p = 50
-      else if (desconto.atestado_dias <= 7) p = 70
+      if (atestadoDias <= 2) p = 25
+      else if (atestadoDias <= 5) p = 50
+      else if (atestadoDias <= 7) p = 70
       else p = 100
-      itens.push({ tipo: `Atestado (${desconto.atestado_dias} dias)`, percentual: p })
+      itens.push({ tipo: `Atestado (${atestadoDias} dias)`, percentual: p })
     }
     return { itens, observacao: desconto.observacao ?? undefined }
   }
@@ -226,7 +231,7 @@ export default function RelatoriosPage() {
       const url = URL.createObjectURL(pdfBlob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `relatorio-pickprod-${mesSelecionado}-${anoSelecionado}.pdf`
+      a.download = `relatorio-dockprod-${mesSelecionado}-${anoSelecionado}.pdf`
       a.click()
       URL.revokeObjectURL(url)
       toast.success('PDF gerado com sucesso!')
@@ -247,14 +252,19 @@ export default function RelatoriosPage() {
       const data = await buscarDadosFiltrados()
       if (data.length === 0) { setErro('Nenhum dado encontrado para o período selecionado.'); return }
       const idFilialParaEvolucao = filtroFilial === 'todas' ? null : filtroFilial
-      const evolucaoTemporal = await fetchEvolucaoTemporal(mesSelecionado, anoSelecionado, idFilialParaEvolucao)
+      const [evolucaoTemporal, descontosData, resultadosData, dadosPorColetaData] = await Promise.all([
+        fetchEvolucaoTemporal(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+        fetchReportDescontos(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+        fetchReportResultados(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+        fetchReportDadosPorColeta(mesSelecionado, anoSelecionado, idFilialParaEvolucao),
+      ])
       const html = gerarRelatorioHTML(data, {
         mesNome: mesSelecionado,
         ano: anoSelecionado,
         filial: filialNomeSelecionada,
         usuario: usuarioLogado?.nome,
         baseUrl: typeof window !== 'undefined' ? window.location.origin : '',
-      }, evolucaoTemporal)
+      }, evolucaoTemporal, descontosData, resultadosData, dadosPorColetaData)
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       window.open(url, '_blank')
@@ -328,7 +338,7 @@ export default function RelatoriosPage() {
       const url = URL.createObjectURL(pdfBlob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `relatorio-dados-gerais-pickprod-${new Date().toISOString().slice(0, 10)}.pdf`
+      a.download = `relatorio-dados-gerais-dockprod-${new Date().toISOString().slice(0, 10)}.pdf`
       a.click()
       URL.revokeObjectURL(url)
       toast.success('PDF Dados Gerais gerado com sucesso!')

@@ -76,6 +76,9 @@ export default function ResultadoPage() {
   const [acuracidadeModal, setAcuracidadeModal] = useState('')
   const [checklistModal, setChecklistModal] = useState('')
   const [perdaModal, setPerdaModal] = useState('')
+  const [filialModal, setFilialModal] = useState('todas')
+  const [mesModal, setMesModal] = useState('')
+  const [anoModal, setAnoModal] = useState(new Date().getFullYear())
 
   const supabase = createClient()
   const registrosPorPagina = 50
@@ -225,9 +228,16 @@ export default function ResultadoPage() {
   const calcularFechamento = async (
     acuracidadeModalVal?: number | null,
     checklistModalVal?: number | null,
-    perdaModalVal?: number | null
+    perdaModalVal?: number | null,
+    filialIdModal?: string,
+    mesModalVal?: string,
+    anoModalVal?: number
   ) => {
-    if (!mesSelecionado) return
+    const mesFechamento = mesModalVal || mesSelecionado
+    const anoFechamento = anoModalVal || anoSelecionado
+    const filialIdFechamento = filialIdModal || filtroFilial
+
+    if (!mesFechamento) return
     setCalculando(true)
     try {
       // ── 1. Buscar dados brutos ──────────────────────────────────────────
@@ -237,7 +247,7 @@ export default function ResultadoPage() {
         const di = parseISODateLocal(filtroDataInicio)
         const df = parseISODateLocal(filtroDataFim)
         if (!di || !df) {
-          const fallback = getDatasPorMesAno(mesSelecionado, anoSelecionado)
+          const fallback = getDatasPorMesAno(mesFechamento, anoFechamento)
           dataInicio = fallback.dataInicio
           dataFim = fallback.dataFim
         } else {
@@ -245,7 +255,7 @@ export default function ResultadoPage() {
           dataFim = df
         }
       } else {
-        const range = getDatasPorMesAno(mesSelecionado, anoSelecionado)
+        const range = getDatasPorMesAno(mesFechamento, anoFechamento)
         dataInicio = range.dataInicio
         dataFim = range.dataFim
       }
@@ -258,7 +268,9 @@ export default function ResultadoPage() {
         supabase.from('recebimentos').select('*').gte('dta_receb', dataInicioISO).lte('dta_receb', dataFimISO)
       )
       const tempoList = await fetchAllRows<TempoRow>(() => supabase.from('tempo').select('*'))
-      const { data: colaboradoresList } = await supabase.from('colaboradores').select('*, filiais(codigo, nome)').eq('ativo', true)
+      let qCol = supabase.from('colaboradores').select('*, filiais(codigo, nome)').eq('ativo', true)
+      if (filialIdFechamento !== 'todas') qCol = qCol.eq('id_filial', filialIdFechamento)
+      const { data: colaboradoresList } = await qCol
       const { data: filiaisList } = await supabase.from('filiais').select('id, codigo, nome')
 
       // ── 2. Mapear tempo por id_coleta_recebimento ───────────────────────
@@ -309,14 +321,14 @@ export default function ResultadoPage() {
           .from('totalizadores')
           .select('id')
           .eq('id_filial', idFilial)
-          .eq('mes', mesSelecionado)
-          .eq('ano', anoSelecionado)
+          .eq('mes', mesFechamento)
+          .eq('ano', anoFechamento)
           .single()
 
         const totPayload = {
           id_filial: idFilial,
-          mes: mesSelecionado,
-          ano: anoSelecionado,
+          mes: mesFechamento,
+          ano: anoFechamento,
           peso_liquido_total: gr.peso,
           qtd_caixas_total: gr.volume,
           paletes_total: gr.paletes,
@@ -337,8 +349,8 @@ export default function ResultadoPage() {
       const { data: totalizadoresList } = await supabase
         .from('totalizadores')
         .select('*')
-        .eq('mes', mesSelecionado)
-        .eq('ano', anoSelecionado)
+        .eq('mes', mesFechamento)
+        .eq('ano', anoFechamento)
 
       const totPorFilial = new Map<string, { peso: number; volume: number; paletes: number; tempoHoras: number; kgHs: number | null; volHs: number | null; pltHs: number | null }>()
 
@@ -381,15 +393,15 @@ export default function ResultadoPage() {
           .from('fechamento')
           .select('id')
           .eq('id_colaborador', col.id)
-          .eq('mes', mesSelecionado)
-          .eq('ano', anoSelecionado)
+          .eq('mes', mesFechamento)
+          .eq('ano', anoFechamento)
           .single()
 
         const payloadTotais = {
           id_colaborador: col.id,
           id_filial: idFilial || null,
-          mes: mesSelecionado,
-          ano: anoSelecionado,
+          mes: mesFechamento,
+          ano: anoFechamento,
           peso_liquido_total: tot?.peso ?? 0,
           volume_total: tot?.volume ?? 0,
           paletes_total: tot?.paletes ?? 0,
@@ -425,7 +437,7 @@ export default function ResultadoPage() {
       const descontosPorColaborador = new Map<string, { percentual_total: number }>()
         ; (descontosList ?? []).forEach((d: { id_colaborador: string; mes_desconto: string; percentual_total: number | null }) => {
           const mesStr = d.mes_desconto ? String(d.mes_desconto).slice(0, 7) : ''
-          const anoMes = `${anoSelecionado}-${String(MESES.indexOf(mesSelecionado) + 1).padStart(2, '0')}`
+          const anoMes = `${anoFechamento}-${String(MESES.indexOf(mesFechamento) + 1).padStart(2, '0')}`
           if (mesStr === anoMes || (d.mes_desconto && String(d.mes_desconto).startsWith(anoMes))) {
             descontosPorColaborador.set(d.id_colaborador, { percentual_total: Number(d.percentual_total ?? 0) })
           }
@@ -433,7 +445,7 @@ export default function ResultadoPage() {
 
       // ── 9. Calcular resultados ──────────────────────────────────────────
       await carregarFechamentos()
-      const fechamentosAtualizados = await supabase.from('fechamento').select('*, colaboradores(nome, matricula, funcao, filiais(codigo, nome))').eq('mes', mesSelecionado).eq('ano', anoSelecionado)
+      const fechamentosAtualizados = await supabase.from('fechamento').select('*, colaboradores(nome, matricula, funcao, filiais(codigo, nome))').eq('mes', mesFechamento).eq('ano', anoFechamento)
       const fechList = fechamentosAtualizados.data ?? []
 
       const filialCodigo = new Map<string, string>()
@@ -461,7 +473,7 @@ export default function ResultadoPage() {
           id_colaborador: f.id_colaborador,
           id_filial: f.id_filial,
           filial: (col?.filiais as { nome?: string })?.nome ?? (Array.isArray(col?.filiais) ? (col.filiais as { nome?: string }[])[0]?.nome : ''),
-          mes: mesSelecionado,
+          mes: mesFechamento,
           funcao: col?.funcao ?? null,
           acuracidade,
           checklist,
@@ -476,7 +488,7 @@ export default function ResultadoPage() {
           filtro: valorDesconto,
           bonus_final: bonusFinal,
         }
-        const { data: resExistente } = await supabase.from('resultados').select('id').eq('id_colaborador', f.id_colaborador).eq('mes', mesSelecionado).single()
+        const { data: resExistente } = await supabase.from('resultados').select('id').eq('id_colaborador', f.id_colaborador).eq('mes', mesFechamento).single()
         if (resExistente) {
           await supabase.from('resultados').update(resPayload).eq('id', resExistente.id)
         } else {
@@ -525,7 +537,12 @@ export default function ResultadoPage() {
           <p className="text-muted-foreground">Visualize e calcule o fechamento mensal (DockProd – por filial, plt/hs)</p>
         </div>
         <Button
-          onClick={() => setModalFechamentoAberto(true)}
+          onClick={() => {
+            setFilialModal(filtroFilial)
+            setMesModal(mesSelecionado)
+            setAnoModal(anoSelecionado)
+            setModalFechamentoAberto(true)
+          }}
           disabled={calculando}
           className="bg-green-600 hover:bg-green-700"
         >
@@ -539,7 +556,7 @@ export default function ResultadoPage() {
           <DialogHeader>
             <DialogTitle>Acuracidade, Checklist e Perda</DialogTitle>
             <DialogDescription>
-              Preencha os valores que serão aplicados a todos os colaboradores no fechamento de {mesSelecionado}/{anoSelecionado}. Em seguida o sistema calculará o fechamento e o resultado da produtividade.
+              Preencha os valores e o período/filial para o fechamento. Em seguida o sistema calculará o fechamento e o resultado da produtividade.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -581,6 +598,45 @@ export default function ResultadoPage() {
                 onChange={(e) => setPerdaModal(e.target.value)}
               />
             </div>
+
+            <div className="border-t pt-4 mt-2 space-y-4">
+              <div className="space-y-2">
+                <Label>Filial do Fechamento</Label>
+                <Select value={filialModal} onValueChange={setFilialModal} disabled={usuarioLogado?.tipo === 'colaborador'}>
+                  <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+                  <SelectContent>
+                    {(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && <SelectItem value="todas">Todas as Filiais</SelectItem>}
+                    {filiais.map((f) => (
+                      <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Mês do Fechamento</Label>
+                  <Select value={mesModal} onValueChange={setMesModal}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MESES.map((m) => (
+                        <SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Ano do Fechamento</Label>
+                  <Select value={String(anoModal)} onValueChange={(v) => setAnoModal(Number(v))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {[2024, 2025, 2026].map((y) => (
+                        <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -602,7 +658,14 @@ export default function ResultadoPage() {
                   return
                 }
                 setModalFechamentoAberto(false)
-                await calcularFechamento(acu ?? undefined, chk ?? undefined, perd ?? undefined)
+                await calcularFechamento(
+                  acu ?? undefined,
+                  chk ?? undefined,
+                  perd ?? undefined,
+                  filialModal,
+                  mesModal,
+                  anoModal
+                )
               }}
             >
               Salvar e Calcular

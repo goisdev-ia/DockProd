@@ -92,6 +92,7 @@ interface ResumoFilialRow {
   volume_total: number
   paletes_total: number
   tempo_total: number
+  tempo_medio?: number
 }
 
 interface EvolucaoRow {
@@ -99,6 +100,13 @@ interface EvolucaoRow {
   total_kg: number
   total_volume: number
   total_paletes: number
+}
+
+interface ResumoFornecedorRow {
+  fornecedor: string
+  total_cargas: number
+  total_pedidos: number
+  peso_total: number
 }
 
 interface TopFornecedorRow {
@@ -185,6 +193,7 @@ export default function DashboardPage() {
   const [fechamentoList, setFechamentoList] = useState<FechamentoChartRow[]>([])
   const [resumoColaborador, setResumoColaborador] = useState<ResumoColaboradorRow[]>([])
   const [resumoFilial, setResumoFilial] = useState<ResumoFilialRow[]>([])
+  const [resumoFornecedor, setResumoFornecedor] = useState<ResumoFornecedorRow[]>([])
   const [evolucaoDataInterna, setEvolucaoDataInterna] = useState<EvolucaoRow[]>([])
   const [pieChartMesAno, setPieChartMesAno] = useState<string>(() => {
     const now = new Date()
@@ -399,14 +408,29 @@ export default function DashboardPage() {
         .sort((a, b) => a.data_carga.localeCompare(b.data_carga))
       setEvolucaoDataInterna(evolucaoArr)
 
-      // Top 5 fornecedores por peso
-      const porFornec = new Map<string, number>()
+      // Resumo por Fornecedor
+      const porFornecResumo = new Map<string, { coletas: Set<string>; notas: Set<string>; peso: number }>()
       recList.forEach((r) => {
         const f = r.fornecedor ?? 'N/A'
-        porFornec.set(f, (porFornec.get(f) ?? 0) + Number(r.peso_liquido_recebido ?? 0))
+        if (!porFornecResumo.has(f)) porFornecResumo.set(f, { coletas: new Set(), notas: new Set(), peso: 0 })
+        const d = porFornecResumo.get(f)!
+        if (r.id_coleta_recebimento) d.coletas.add(r.id_coleta_recebimento)
+        else d.coletas.add(r.id)
+        if (r.nota_fiscal) d.notas.add(r.nota_fiscal)
+        d.peso += Number(r.peso_liquido_recebido ?? 0)
       })
-      const topFornec = Array.from(porFornec.entries())
-        .map(([fornecedor, total_peso]) => ({ fornecedor, total_peso }))
+
+      const resumoFornecArr: ResumoFornecedorRow[] = Array.from(porFornecResumo.entries()).map(([fornecedor, d]) => ({
+        fornecedor,
+        total_cargas: d.coletas.size,
+        total_pedidos: d.notas.size,
+        peso_total: d.peso
+      }))
+      setResumoFornecedor(resumoFornecArr)
+
+      // Top 5 fornecedores por peso (para o gráfico)
+      const topFornec = [...resumoFornecArr]
+        .map(f => ({ fornecedor: f.fornecedor, total_peso: f.peso_total }))
         .sort((a, b) => b.total_peso - a.total_peso)
         .slice(0, 5)
       setTopFornecedoresData(topFornec)
@@ -470,6 +494,7 @@ export default function DashboardPage() {
         volume_total: g.volume,
         paletes_total: g.paletes,
         tempo_total: g.tempo,
+        tempo_medio: g.cargas > 0 ? g.tempo / g.cargas : 0,
       }))
       setResumoFilial(resumoFilArr)
 
@@ -663,9 +688,9 @@ export default function DashboardPage() {
   const top3Kg = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.peso_liquido_total - a.peso_liquido_total).slice(0, 3), [porColaboradorArrTotais])
   const top3Vol = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.volume_total - a.volume_total).slice(0, 3), [porColaboradorArrTotais])
   const top3Plt = useMemo(() => [...porColaboradorArrTotais].sort((a, b) => b.paletes_total - a.paletes_total).slice(0, 3), [porColaboradorArrTotais])
-  const top3Cargas = useMemo(() => [...resumoColaborador].sort((a, b) => b.total_cargas - a.total_cargas).slice(0, 3), [resumoColaborador])
-  const top3Pedidos = useMemo(() => [...resumoColaborador].sort((a, b) => b.total_pedidos - a.total_pedidos).slice(0, 3), [resumoColaborador])
-  const top3TempoMedio = useMemo(() => [...resumoColaborador].sort((a, b) => b.tempo_medio - a.tempo_medio).slice(0, 3), [resumoColaborador])
+  const top3CargasFornec = useMemo(() => [...resumoFornecedor].sort((a, b) => b.total_cargas - a.total_cargas).slice(0, 3), [resumoFornecedor])
+  const top3PedidosFornec = useMemo(() => [...resumoFornecedor].sort((a, b) => b.total_pedidos - a.total_pedidos).slice(0, 3), [resumoFornecedor])
+  const top3TempoMedioFilial = useMemo(() => [...resumoFilial].filter(f => (f.tempo_medio ?? 0) > 0).sort((a, b) => (b.tempo_medio ?? 0) - (a.tempo_medio ?? 0)).slice(0, 3), [resumoFilial])
 
   return (
     <div className="space-y-6">
@@ -725,9 +750,9 @@ export default function DashboardPage() {
                     <SelectValue placeholder="Selecione..." />
                   </SelectTrigger>
                   <SelectContent>
-{(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && (
-                    <SelectItem value="todas">Todas as Filiais</SelectItem>
-                  )}
+                    {(usuarioLogado?.tipo === 'admin' || usuarioLogado?.tipo === 'gestor') && (
+                      <SelectItem value="todas">Todas as Filiais</SelectItem>
+                    )}
                     {filiais.map(filial => (
                       <SelectItem key={filial.id} value={filial.id}>
                         {filial.nome}
@@ -1192,33 +1217,33 @@ export default function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Top 3 Nº de Cargas (Coletas) x Colaborador</CardTitle>
+              <CardTitle className="text-base">Top 3 Nº de Cargas (Coletas) x Fornecedor</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {top3Cargas.map((r, i) => (
-                  <div key={r.id_colaborador ?? `${r.nome}-${i}`} className="flex justify-between items-center text-sm">
-                    <span className="font-medium">#{i + 1} {r.nome}</span>
+                {top3CargasFornec.map((r, i) => (
+                  <div key={r.fornecedor} className="flex justify-between items-center text-sm">
+                    <span className="font-medium">#{i + 1} {r.fornecedor}</span>
                     <span>{formatarNumero(r.total_cargas, 0)}</span>
                   </div>
                 ))}
-                {top3Cargas.length === 0 && <p className="text-muted-foreground text-sm">Sem dados</p>}
+                {top3CargasFornec.length === 0 && <p className="text-muted-foreground text-sm">Sem dados</p>}
               </div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Top 3 Nº de Notas x Colaborador</CardTitle>
+              <CardTitle className="text-base">Top 3 Nº de Notas x Fornecedor</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {top3Pedidos.map((r, i) => (
-                  <div key={r.id_colaborador ?? i} className="flex justify-between items-center text-sm">
-                    <span className="font-medium">#{i + 1} {r.nome}</span>
+                {top3PedidosFornec.map((r, i) => (
+                  <div key={r.fornecedor} className="flex justify-between items-center text-sm">
+                    <span className="font-medium">#{i + 1} {r.fornecedor}</span>
                     <span>{formatarNumero(r.total_pedidos, 0)}</span>
                   </div>
                 ))}
-                {top3Pedidos.length === 0 && <p className="text-muted-foreground text-sm">Sem dados</p>}
+                {top3PedidosFornec.length === 0 && <p className="text-muted-foreground text-sm">Sem dados</p>}
               </div>
             </CardContent>
           </Card>
@@ -1294,17 +1319,17 @@ export default function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-base">Top 3 Tempo Médio x Colaborador</CardTitle>
+              <CardTitle className="text-base">Top 3 Tempo Médio x Filial</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {top3TempoMedio.map((r, i) => (
-                  <div key={r.id_colaborador} className="flex justify-between items-center text-sm">
+                {top3TempoMedioFilial.map((r, i) => (
+                  <div key={r.id_filial} className="flex justify-between items-center text-sm">
                     <span className="font-medium">#{i + 1} {r.nome}</span>
-                    <span>{formatarNumero(r.tempo_medio, 1)}h</span>
+                    <span>{formatarNumero(r.tempo_medio ?? 0, 1)}h</span>
                   </div>
                 ))}
-                {top3TempoMedio.length === 0 && <p className="text-muted-foreground text-sm">Sem dados</p>}
+                {top3TempoMedioFilial.length === 0 && <p className="text-muted-foreground text-sm">Sem dados</p>}
               </div>
             </CardContent>
           </Card>

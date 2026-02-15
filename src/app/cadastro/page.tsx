@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { hash } from 'bcryptjs'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,7 +42,7 @@ export default function CadastroPage() {
       if (signUpError) {
         const msg =
           signUpError.message?.toLowerCase().includes('already registered') ||
-          signUpError.message?.toLowerCase().includes('already exists')
+            signUpError.message?.toLowerCase().includes('already exists')
             ? 'Este email já está cadastrado.'
             : signUpError.message || 'Erro ao criar conta. Tente novamente.'
         setErro(msg)
@@ -58,32 +57,10 @@ export default function CadastroPage() {
         return
       }
 
-      // 2. Inserir em public.usuarios via API (service_role contorna RLS)
-      const senhaHash = await hash(senha, 10)
-      const payload = {
-        id: userId,
-        nome,
-        email: email.trim().toLowerCase(),
-        senhaHash,
-        tipo: 'novo',
-      }
-      let res: Response | null = null
-      for (let attempt = 0; attempt < 3; attempt++) {
-        res = await fetch('/api/cadastro-usuario', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (res.ok) break
-        if (attempt < 2) await new Promise(r => setTimeout(r, 500 * (attempt + 1)))
-      }
-
-      const data = await res!.json().catch(() => ({}))
-      if (!res!.ok) {
-        setErro((data.error as string) || 'Erro ao criar conta. Verifique sua conexão e tente novamente.')
-        setLoading(false)
-        return
-      }
+      // 2. O registro em public.usuarios agora é feito automaticamente via TRIGGER no Supabase.
+      // Não precisamos mais fazer o fetch manual para /api/cadastro-usuario.
+      // Damos apenas um pequeno tempo para o trigger processar antes de mostrar sucesso.
+      await new Promise(r => setTimeout(r, 1000))
 
       setSucesso(true)
       setTimeout(() => {

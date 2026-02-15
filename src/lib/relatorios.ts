@@ -10,6 +10,7 @@ import {
 } from '@/lib/calculos'
 import { getMesNome } from '@/lib/dashboard-filters'
 import { formatDateBR } from '@/lib/date-utils'
+import { fetchAllRows } from '@/lib/supabase/fetch-all'
 
 const MES_NOME_TO_NUM: Record<string, string> = {
   janeiro: '01',
@@ -216,18 +217,19 @@ export async function fetchAllDadosProdutividade(filtros?: FiltrosDadosGerais | 
     nomeColaborador = (col as { nome?: string } | null)?.nome ?? null
   }
 
-  let query = supabase
-    .from('recebimentos')
-    .select('*')
-    .gte('dta_receb', dataInicio)
-    .lte('dta_receb', dataFim)
-    .order('dta_receb', { ascending: false })
-    .limit(10000)
-  if (filtros?.id_filial) query = query.eq('id_filial', filtros.id_filial)
-  if (nomeColaborador) query = query.eq('usuario_recebto', nomeColaborador)
+  const queryFn = () => {
+    let q = supabase
+      .from('recebimentos')
+      .select('*')
+      .gte('dta_receb', dataInicio)
+      .lte('dta_receb', dataFim)
+      .order('dta_receb', { ascending: false })
+    if (filtros?.id_filial) q = q.eq('id_filial', filtros.id_filial)
+    if (nomeColaborador) q = q.eq('usuario_recebto', nomeColaborador)
+    return q
+  }
 
-  const { data: recebimentos, error: errRec } = await query
-  if (errRec) throw errRec
+  const recebimentos = await fetchAllRows<any>(queryFn)
 
   const recList = (recebimentos ?? []) as Array<{
     id: string
@@ -653,17 +655,18 @@ export async function fetchReportDadosPorColeta(
   const dataFimStr = toISODateLocal(dataFim)
   const mesAnoFormatado = `${mesesLongosReport[mesNome.toLowerCase()] || mesNome}/${ano}`
 
-  let query = supabase
-    .from('recebimentos')
-    .select('*')
-    .gte('dta_receb', dataInicioStr)
-    .lte('dta_receb', dataFimStr)
-    .order('dta_receb', { ascending: false })
-    .limit(5000)
-  if (idFilial) query = query.eq('id_filial', idFilial)
+  const queryFn = () => {
+    let q = supabase
+      .from('recebimentos')
+      .select('*')
+      .gte('dta_receb', dataInicioStr)
+      .lte('dta_receb', dataFimStr)
+      .order('dta_receb', { ascending: false })
+    if (idFilial) q = q.eq('id_filial', idFilial)
+    return q
+  }
 
-  const { data: recebimentos, error: errRec } = await query
-  if (errRec) return []
+  const recebimentos = await fetchAllRows<any>(queryFn)
 
   const recList = (recebimentos ?? []) as Array<{
     id: string
@@ -940,8 +943,8 @@ export function exportHTML(data: FechamentoLinha[], mesNome: string, ano: number
     </thead>
     <tbody>
       ${data
-        .map(
-          (r) => `
+      .map(
+        (r) => `
       <tr>
         <td>${r.filial_nome}</td>
         <td>${r.colaborador_nome}</td>
@@ -956,8 +959,8 @@ export function exportHTML(data: FechamentoLinha[], mesNome: string, ano: number
         <td>${r.meta.toFixed(2)}</td>
         <td>${r.percentual_atingimento.toFixed(1)}%</td>
       </tr>`
-        )
-        .join('')}
+      )
+      .join('')}
     </tbody>
   </table>
 </body>

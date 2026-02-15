@@ -29,8 +29,6 @@ import {
   Filter,
 } from 'lucide-react'
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -183,7 +181,6 @@ export default function DashboardPage() {
     tempoMedio: 0,
   })
   const [loading, setLoading] = useState(true)
-  const [evolucaoData, setEvolucaoData] = useState<EvolucaoRow[]>([])
   const [topFornecedoresData, setTopFornecedoresData] = useState<TopFornecedorRow[]>([])
   const [fechamentoList, setFechamentoList] = useState<FechamentoChartRow[]>([])
   const [resumoColaborador, setResumoColaborador] = useState<ResumoColaboradorRow[]>([])
@@ -252,7 +249,6 @@ export default function DashboardPage() {
     }
     return getDatasPorPeriodo(periodoSelecionado as PeriodoOption)
   }, [periodoSelecionado, dataCargaInicio, dataCargaFim])
-  const datasEvolucao = useMemo(() => getDatasPorPeriodo(periodoEvolucao), [periodoEvolucao])
 
   const filtrosPrincipal = useMemo(() => ({
     id_filial: idFilial,
@@ -551,7 +547,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [filtrosPrincipal, periodoSelecionado, idFilial, colaboradorIds, filiais])
+  }, [filtrosPrincipal, periodoSelecionado, colaboradorIds, filiais])
 
   useEffect(() => {
     carregarUsuarioLogado()
@@ -649,7 +645,6 @@ export default function DashboardPage() {
     ...r,
     data_carga: format(new Date(r.data_carga + 'T12:00:00'), 'dd/MM', { locale: ptBR }),
   })), [evolucaoDataInterna])
-  const pieData = useMemo(() => porFilialArrR$.map((f, i) => ({ name: f.nome, value: f.produtividade_final, fill: ['#166534', '#15803d', '#16a34a', '#22c55e', '#4ade80'][i % 5] })).filter((d) => d.value > 0), [porFilialArrR$])
   const pieDataDescontos = useMemo(() => {
     const porColab = fechamentoList.reduce((acc, f) => {
       const nome = f.colaborador_nome || 'Sem nome'

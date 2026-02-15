@@ -19,6 +19,7 @@ export default function PerfilPage() {
 
     useEffect(() => {
         carregarPerfil()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     const carregarPerfil = async () => {

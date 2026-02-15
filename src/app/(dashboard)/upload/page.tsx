@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { FileSpreadsheet, CheckCircle, AlertCircle, Loader2, History, ChevronLeft, ChevronRight, Package, Clock } from 'lucide-react'
+import { CheckCircle, AlertCircle, Loader2, History, ChevronLeft, ChevronRight, Package, Clock } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { registrarLog } from '@/lib/logs'
 import { fetchAllRows } from '@/lib/supabase/fetch-all'
@@ -286,9 +286,10 @@ export default function UploadPage() {
         }
       }
       const { data: filiais } = await supabase.from('filiais').select('*')
-      const recebimentosExistentes = await fetchAllRows(() => supabase.from('recebimentos').select('id_coleta_recebimento, coleta, filial').not('id_coleta_recebimento', 'is', null))
+      type RecebColetaRow = { id_coleta_recebimento: string; coleta: string }
+      const recebimentosExistentes = await fetchAllRows<RecebColetaRow>(() => supabase.from('recebimentos').select('id_coleta_recebimento, coleta, filial').not('id_coleta_recebimento', 'is', null))
       const mapaColetaToId = new Map<string, string>()
-      recebimentosExistentes.forEach((r: { id_coleta_recebimento: string; coleta: string }) => {
+      recebimentosExistentes.forEach((r: RecebColetaRow) => {
         if (r.coleta && r.id_coleta_recebimento) mapaColetaToId.set(r.coleta, r.id_coleta_recebimento)
       })
       const processados: TempoProcessado[] = jsonData.map((row: Record<string, unknown>) => {

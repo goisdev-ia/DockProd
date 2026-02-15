@@ -111,6 +111,7 @@ export default function DescontosPage() {
     carregarColaboradores()
     carregarFiliais()
     carregarRegrasDescontos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const carregarUsuarioLogado = async () => {
@@ -147,6 +148,7 @@ export default function DescontosPage() {
 
   useEffect(() => {
     aplicarFiltros()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [descontos, filtroColaborador, filtroFilial, filtroMes, filtroDataInicio, filtroDataFim, buscaDebounced, filtroFaltasMin, filtroFaltasMax, filtroFeriasMin, filtroFeriasMax, filtroAdvertenciasMin, filtroAdvertenciasMax, filtroSuspensoesMin, filtroSuspensoesMax, filtroAtestadoMin, filtroAtestadoMax, matriculaDebounced])
 
   const carregarDados = async () => {

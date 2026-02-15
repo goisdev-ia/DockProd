@@ -24,13 +24,6 @@ interface UsuarioExtendido extends Usuario {
   filial_nome?: string
 }
 
-interface RegraTier {
-  kg_hora?: number
-  vol_hora?: number
-  plt_hora?: number
-  valor: number
-}
-
 export default function ConfiguracoesPage() {
   const [usuarios, setUsuarios] = useState<UsuarioExtendido[]>([])
   const [filiais, setFiliais] = useState<{ id: string; nome: string;[key: string]: unknown }[]>([])
@@ -81,6 +74,7 @@ export default function ConfiguracoesPage() {
     carregarUsuarios()
     carregarFiliais()
     carregarPerfilUsuario()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const carregarUsuarios = async () => {

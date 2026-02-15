@@ -339,7 +339,7 @@ export async function fetchAllDadosProdutividade(filtros?: FiltrosDadosGerais | 
       carga: g.coleta,
       data_carga: g.data_carga,
       filial: g.filial,
-      cliente: g.fornecedor || null,
+      cliente: g.fornecedor ?? '',
       colaborador: g.colaborador,
       hora_inicial: horaInicial,
       hora_final: horaFinal,
@@ -831,7 +831,7 @@ export async function exportXLSX(data: FechamentoLinha[], mesNome: string, ano: 
   const lastCol = String.fromCharCode(64 + XLSX_COLUMNS.length)
   const lastRow = data.length + 1
   sheet.autoFilter = { from: 'A1', to: `${lastCol}${lastRow}` }
-  sheet.eachRow((row, rowNumber) => {
+  sheet.eachRow((row) => {
     row.eachCell((cell) => {
       cell.border = {
         top: { style: 'thin', color: { argb: 'FF90EE90' } },

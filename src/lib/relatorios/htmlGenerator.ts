@@ -37,17 +37,6 @@ function fmtMoeda(n: number): string {
   return 'R$ ' + fmt(n)
 }
 
-function getMesFormatado(mesNome: string, ano: number): string {
-  const meses: Record<string, string> = {
-    'janeiro': 'JAN', 'fevereiro': 'FEV', 'março': 'MAR', 'abril': 'ABR',
-    'maio': 'MAI', 'junho': 'JUN', 'julho': 'JUL', 'agosto': 'AGO',
-    'setembro': 'SET', 'outubro': 'OUT', 'novembro': 'NOV', 'dezembro': 'DEZ',
-    'todos': 'TODOS'
-  }
-  const mesAbrev = meses[mesNome.toLowerCase()] || mesNome.toUpperCase().substring(0, 3)
-  return `${mesAbrev}/${ano}`
-}
-
 /** Mês/ano formatado para tabelas (ex.: Janeiro/2026). */
 function getMesFormatadoLongo(mesNome: string, ano: number): string {
   const mesesLongos: Record<string, string> = {
@@ -201,7 +190,6 @@ export function gerarRelatorioHTML(
   const descontosValues = JSON.stringify(descontosColab.map(r => Number(r.valor_descontos.toFixed(2))))
 
   // ========== Totalizadores para as Tabelas ==========
-  const mesFormatado = getMesFormatado(mesNome, ano)
   const mesFormatadoLongo = getMesFormatadoLongo(mesNome, ano)
 
   // Totais Produtividade (usar deduplicação por filial - mesmo valor nos cards)
@@ -217,28 +205,6 @@ export function gerarRelatorioHTML(
     kgHs: totalColab > 0 ? data.reduce((s, r) => s + r.kg_hs, 0) / totalColab : 0,
     volHs: totalColab > 0 ? data.reduce((s, r) => s + r.vol_hs, 0) / totalColab : 0,
     pltHs: totalColab > 0 ? data.reduce((s, r) => s + r.plt_hs, 0) / totalColab : 0,
-  }
-
-  // Totais Descontos
-  const totaisDesc = {
-    errosSep: data.reduce((s, r) => s + r.erro_separacao_total, 0),
-    errosEnt: data.reduce((s, r) => s + r.erro_entregas_total, 0),
-    percErros: totalColab > 0 ? data.reduce((s, r) => s + r.percentual_erros, 0) / totalColab : 0,
-    percDescontos: totalColab > 0 ? data.reduce((s, r) => s + r.percentual_descontos, 0) / totalColab : 0,
-    vlrDescontos: totalDescontos,
-  }
-
-  // Totais Fechamento/Resultado
-  const totaisFech = {
-    vlrKgHs: data.reduce((s, r) => s + r.valor_kg_hs, 0),
-    vlrVolHs: data.reduce((s, r) => s + r.valor_vol_hs, 0),
-    vlrPltHs: data.reduce((s, r) => s + r.valor_plt_hs, 0),
-    prodBruta: data.reduce((s, r) => s + r.produtividade_bruta, 0),
-    percErros: totalColab > 0 ? data.reduce((s, r) => s + r.percentual_erros, 0) / totalColab : 0,
-    percDescontos: totalColab > 0 ? data.reduce((s, r) => s + r.percentual_descontos, 0) / totalColab : 0,
-    prodFinal: totalProdFinal,
-    meta: totalMeta,
-    atingimento: mediaAtingimento,
   }
 
   // Tabelas paginadas (máx 50 registros por página)

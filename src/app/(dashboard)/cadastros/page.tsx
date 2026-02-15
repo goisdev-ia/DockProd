@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Edit, Trash2, Plus, UserPlus, Download, Upload, Building2, Briefcase } from 'lucide-react'
+import { Edit, Trash2, UserPlus, Download, Upload, Building2, Briefcase } from 'lucide-react'
 import type { Colaborador } from '@/types/database'
 import * as XLSX from 'xlsx'
 
@@ -72,6 +72,7 @@ export default function CadastrosPage() {
   useEffect(() => {
     carregarDados()
     carregarFiliais()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const carregarDados = async () => {

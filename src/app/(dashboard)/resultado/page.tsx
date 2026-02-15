@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
-import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogContent,
@@ -38,15 +37,6 @@ import type { Fechamento, Resultado as ResultadoType } from '@/types/database'
 
 const META_BONUS = 250
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
-
-/** Normaliza nome para match (trim, lowercase, remove acentos) */
-function normalizeNome(s: string): string {
-  return (s ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-}
 
 interface FechamentoRow extends Fechamento {
   colaborador_nome?: string
@@ -175,7 +165,7 @@ export default function ResultadoPage() {
       console.error('Erro ao carregar resultados:', e)
       setResultados([])
     }
-  }, [supabase, mesSelecionado, anoSelecionado])
+  }, [supabase, mesSelecionado])
 
   type ColaboradorComFilial = { id: string; nome: string; matricula: string; id_filial: string | null; funcao: string | null; filiais?: { codigo: string; nome: string } }
   const carregarColaboradores = useCallback(async () => {
@@ -262,23 +252,25 @@ export default function ResultadoPage() {
       const dataInicioISO = toISODate(dataInicio)
       const dataFimISO = toISODate(dataFim)
 
-      const recebimentos = await fetchAllRows(() =>
+      type RecebRow = { id: string; id_filial: string | null; filial: string | null; id_coleta_recebimento: string | null; usuario_recebto: string | null; qtd_caixas_recebidas: number | null; peso_liquido_recebido: number | null }
+      type TempoRow = { id_coleta_recebimento: string | null; tempo_recebimento: string | null }
+      const recebimentos = await fetchAllRows<RecebRow>(() =>
         supabase.from('recebimentos').select('*').gte('dta_receb', dataInicioISO).lte('dta_receb', dataFimISO)
       )
-      const tempoList = await fetchAllRows(() => supabase.from('tempo').select('*'))
+      const tempoList = await fetchAllRows<TempoRow>(() => supabase.from('tempo').select('*'))
       const { data: colaboradoresList } = await supabase.from('colaboradores').select('*, filiais(codigo, nome)').eq('ativo', true)
       const { data: filiaisList } = await supabase.from('filiais').select('id, codigo, nome')
 
       // ── 2. Mapear tempo por id_coleta_recebimento ───────────────────────
       const tempoPorIdColeta = new Map<string, { tempo_recebimento: string | null }>()
-      tempoList.forEach((t: { id_coleta_recebimento: string | null; tempo_recebimento: string | null }) => {
+      tempoList.forEach((t: TempoRow) => {
         if (t.id_coleta_recebimento) tempoPorIdColeta.set(t.id_coleta_recebimento, { tempo_recebimento: t.tempo_recebimento })
       })
 
       // ── 3. Agrupar recebimentos por coleta (mesma lógica da Produtividade) ──
       type RecebColeta = { id_filial: string | null; qtd_caixas: number[]; peso: number; volume: number }
       const recebPorColeta = new Map<string, RecebColeta>()
-      recebimentos.forEach((r: { id: string; id_filial: string | null; filial: string | null; id_coleta_recebimento: string | null; usuario_recebto: string | null; qtd_caixas_recebidas: number | null; peso_liquido_recebido: number | null }) => {
+      recebimentos.forEach((r: RecebRow) => {
         const key = r.id_coleta_recebimento || r.id
         if (!recebPorColeta.has(key)) {
           recebPorColeta.set(key, { id_filial: r.id_filial, qtd_caixas: [], peso: 0, volume: 0 })

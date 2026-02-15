@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -143,12 +143,14 @@ export default function ProdutividadePage() {
   const carregarDados = useCallback(async () => {
     setLoading(true)
     try {
-      const recebimentos = await fetchAllRows(() => supabase.from('recebimentos').select('*').order('dta_receb', { ascending: false }))
-      const tempoList = await fetchAllRows(() => supabase.from('tempo').select('*'))
+      type RecebimentoRow = { id: string; id_filial: string | null; id_coleta_recebimento: string | null; filial: string | null; coleta: string | null; fornecedor: string | null; dta_receb: string | null; qtd_caixas_recebidas: number | null; peso_liquido_recebido: number | null; observacao: string | null }
+      type TempoRow = { id: string; id_coleta_recebimento: string | null; inicio_recebimento: string | null; final_recebimento: string | null; tempo_recebimento: string | null }
+      const recebimentos = await fetchAllRows<RecebimentoRow>(() => supabase.from('recebimentos').select('*').order('dta_receb', { ascending: false }))
+      const tempoList = await fetchAllRows<TempoRow>(() => supabase.from('tempo').select('*'))
 
       // Associação por ordem de coleta: tempo tem id_coleta_recebimento = recebimentos.coleta (PROCV no upload). Hora Inicial, Hora Final e Tempo (h) vêm da linha de tempo com a mesma ordem.
       const tempoPorColeta = new Map<string, { id: string; inicio: string | null; final: string | null; tempo_recebimento: string | null }>()
-      ;(tempoList ?? []).forEach((t: { id: string; id_coleta_recebimento: string | null; inicio_recebimento: string | null; final_recebimento: string | null; tempo_recebimento: string | null }) => {
+      ;(tempoList ?? []).forEach((t: TempoRow) => {
         const key = t.id_coleta_recebimento ?? ''
         if (key && !tempoPorColeta.has(key)) {
           tempoPorColeta.set(key, {
@@ -161,7 +163,7 @@ export default function ProdutividadePage() {
       })
 
       const grupos = new Map<string, { ids: string[]; id_filial: string | null; filial: string; coleta: string; fornec: string; dta_receb: string; qtd_caixas: number; peso_liquido: number; qtd_caixas_arr: number[]; observacao: string | null }>()
-      ;(recebimentos ?? []).forEach((r: { id: string; id_filial: string | null; id_coleta_recebimento: string | null; filial: string | null; coleta: string | null; fornecedor: string | null; dta_receb: string | null; qtd_caixas_recebidas: number | null; peso_liquido_recebido: number | null; observacao: string | null }) => {
+      ;(recebimentos ?? []).forEach((r: RecebimentoRow) => {
         const key = r.id_coleta_recebimento ?? r.id
         if (!grupos.has(key)) {
           grupos.set(key, {
@@ -296,7 +298,7 @@ export default function ProdutividadePage() {
     }
     setDadosFiltrados(f)
     setPaginaAtual(1)
-  }, [dados, filtroFilial, filtroDataInicio, filtroDataFim, buscaDebounced, filtroPltHsMin, filtroPltHsMax, filiais])
+  }, [dados, filtroFilial, filtroDataInicio, filtroDataFim, buscaDebounced, filtroPltHsMin, filtroPltHsMax])
 
   useEffect(() => {
     aplicarFiltros()

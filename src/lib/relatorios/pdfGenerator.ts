@@ -509,7 +509,7 @@ export async function gerarRelatorioPDF(
     if (dadosPorColetaData.length > 200) {
       doc.setFontSize(7)
       doc.setTextColor(100)
-      doc.text(`(Mostrando 200 de ${dadosPorColetaData.length} registros)`, margin, (doc as any).lastAutoTable.finalY + 4)
+      doc.text(`(Mostrando 200 de ${dadosPorColetaData.length} registros)`, margin, (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 4)
     }
   }
 

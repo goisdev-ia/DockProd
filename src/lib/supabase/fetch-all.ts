@@ -5,7 +5,7 @@
 const CHUNK_SIZE = 1000
 
 type QueryWithRange = {
-  range: (from: number, to: number) => Promise<{ data: unknown; error: { message: string } | null }>
+  range: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>
 }
 
 export async function fetchAllRows<T = unknown>(getQuery: () => QueryWithRange): Promise<T[]> {

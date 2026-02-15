@@ -89,6 +89,7 @@ export default function LogsPage() {
 
   useEffect(() => {
     carregarLogs()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paginaAtual])
 
   const confirmarExcluirOldest = async () => {

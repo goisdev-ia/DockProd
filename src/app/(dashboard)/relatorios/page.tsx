@@ -59,7 +59,7 @@ export default function RelatoriosPage() {
   /** Mapa id_colaborador|mes|ano -> Desconto para resumo na mensagem */
   const [whatsAppDescontosMap, setWhatsAppDescontosMap] = useState<Record<string, Desconto | null>>({})
   /** Mapa id_colaborador|mes|ano -> detalhe erros (separação e entregas + observação) */
-  const [whatsAppErrosMap, setWhatsAppErrosMap] = useState<Record<string, { errosSeparacao: ErroSeparacaoItem[]; errosEntregas: ErroEntregaItem[] }>>({})
+  const [, setWhatsAppErrosMap] = useState<Record<string, { errosSeparacao: ErroSeparacaoItem[]; errosEntregas: ErroEntregaItem[] }>>({})
   /** Mapa id_colaborador|id_filial -> resultados DockProd (acuracidade, checklist, perda, vlr_*) */
   const [whatsAppResultadosMap, setWhatsAppResultadosMap] = useState<Record<string, { acuracidade: number | null; checklist: number | null; perda: number | null; vlr_acuracidade: number; vlr_checklist: number; vlr_plt_hs: number; vlr_perda: number }>>({})
 
@@ -94,6 +94,7 @@ export default function RelatoriosPage() {
       if (colabsData) setColaboradores(colabsData)
     }
     carregar()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Se o usuário é colaborador, travar a filial automaticamente
@@ -138,6 +139,7 @@ export default function RelatoriosPage() {
         setAnoSelecionado(y)
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroDataInicio, filtroDataFim])
 
   // Primeiro e último dia do mês em horário local (evita timezone: 01/01 local não vira 31/12 UTC)
@@ -157,13 +159,6 @@ export default function RelatoriosPage() {
       dataFim: toISODateLocal(ultimo),
     }
   }
-  function getIntervaloEfetivo(): { dataInicio: string; dataFim: string } {
-    if (filtroDataInicio && filtroDataFim) {
-      return { dataInicio: filtroDataInicio.slice(0, 10), dataFim: filtroDataFim.slice(0, 10) }
-    }
-    return getIntervaloMes(mesSelecionado, anoSelecionado)
-  }
-
   function formatarDataBR(iso: string): string {
     const [y, m, d] = iso.split('-')
     return `${d}/${m}/${y}`
@@ -174,7 +169,6 @@ export default function RelatoriosPage() {
     if (!showWhatsAppDialog || whatsAppData.length === 0) return
     const ids = [...new Set(whatsAppData.map(r => r.id_colaborador))]
     const mesesUnicos = [...new Set(whatsAppData.map(r => r.mes))]
-    const anosUnicos = [...new Set(whatsAppData.map(r => r.ano))]
     const fetchResultados = async () => {
       const map: Record<string, { acuracidade: number | null; checklist: number | null; perda: number | null; vlr_acuracidade: number; vlr_checklist: number; vlr_plt_hs: number; vlr_perda: number }> = {}
       const { data: filiaisData } = await supabase.from('filiais').select('id, codigo')
@@ -260,6 +254,7 @@ export default function RelatoriosPage() {
     fetchResultados()
     fetchDescontos()
     fetchErros()
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- getIntervaloMes and supabase are stable
   }, [showWhatsAppDialog, whatsAppData])
 
   function buildResumoDescontos(desconto: Desconto | null): { itens: ResumoDescontoItem[]; observacao?: string | null } {
